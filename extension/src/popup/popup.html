@@ -21,7 +21,8 @@
       .keys { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; }
       .keys .kbd + .kbd, .keys .kbd:not(:first-child) { margin-left: 6px; }
       .pin-ask { display: flex; flex-direction: column; gap: 14px; padding: 14px; }
-      .pin-ask-q { margin: 0 0 4px; font-size: 16px; font-weight: 700; line-height: 1.3; text-wrap: pretty; }
+      /* Weight, not size, sets the question apart: the swatch name above is the one large line. */
+      .pin-ask-q { margin: 0 0 3px; font-size: inherit; font-weight: 700; line-height: 1.35; text-wrap: pretty; }
       .pin-ask p { margin: 0; text-wrap: pretty; }
       .pin-ask-actions { display: flex; gap: 8px; }
       .pin-ask-actions .btn { flex: 1; justify-content: center; }
