@@ -7,13 +7,22 @@
     <link rel="stylesheet" href="../ui/theme.css" />
     <style>
       html, body { width: 360px; }
-      .popup { display: flex; flex-direction: column; max-height: 580px; min-height: 480px; }
-      .popup .current { padding: 8px 10px; margin: 2px 0 4px; border-radius: var(--radius); background: var(--surface); }
-      .popup .list { flex: 1; overflow: auto; padding: 0 6px 6px; min-height: 120px; }
-      .popup footer { padding: 6px 8px; border-top: 1px solid var(--border); }
+      .popup { display: flex; flex-direction: column; min-height: 480px; max-height: 590px; }
+      .popup-head { display: flex; align-items: center; gap: 4px; padding: 12px 10px 8px 12px; }
+      .popup-search { flex: 1; }
+      .popup-search .input { height: 38px; border-radius: 10px; }
+      .popup-current { padding: 2px 12px 4px; }
+      .popup-current .sw-name { font-size: 20px; }
+      .moving { display: flex; align-items: center; gap: 8px; padding: 2px 16px 6px; font-size: 12px; min-width: 0; }
+      .popup .list { flex: 1; overflow: auto; padding: 0 6px 8px; min-height: 120px; }
+      .popup .list .row { min-height: 44px; padding: 6px 10px 6px 7px; gap: 12px; }
+      .popup .list .row .title { font-weight: 550; }
+      .popup-foot { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border-top: 1px solid var(--border); background: var(--surface); }
+      .keys { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; }
+      .keys .kbd + .kbd, .keys .kbd:not(:first-child) { margin-left: 6px; }
       /* The popup grows with its content, so give modals room. */
       .popup .overlay { position: fixed; }
-      .popup .modal { padding: 14px; }
+      .popup .modal { padding: 16px; }
     </style>
   </head>
   <body>

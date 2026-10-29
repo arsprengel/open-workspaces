@@ -2,7 +2,8 @@
 // workspace's tabs into a window.
 
 import { getState, mutate, workspaceForWindow } from './store.js';
-import { isNewTabUrl, serializeGroup, serializeTab } from '../shared/model.js';
+import { isHomeUrl, isNewTabUrl, isWindowFixture, normalizeUrl, serializeGroup, serializeTab } from '../shared/model.js';
+import { HOME_PAGE } from '../shared/constants.js';
 
 const SNAPSHOT_DELAY_MS = 400;
 const timers = new Map();
@@ -56,12 +57,13 @@ export async function snapshotWindow(windowId) {
   // A window that is closing reports zero tabs; never overwrite a workspace with nothing.
   if (!tabs.length) return;
 
+  const { settings, workspaces } = await getState();
   const groups = chrome.tabGroups ? await chrome.tabGroups.query({ windowId }).catch(() => []) : [];
-  const nextTabs = tabs.map(serializeTab);
+  const nextTabs = tabs.filter((tab) => !isWindowFixture(tab, settings.keepPinned)).map(serializeTab);
   const used = new Set(nextTabs.map((t) => t.groupKey).filter(Boolean));
   const nextGroups = groups.map(serializeGroup).filter((g) => used.has(g.key));
 
-  const current = (await getState()).workspaces[wsId];
+  const current = workspaces[wsId];
   if (!current) return;
   if (JSON.stringify(current.tabs) === JSON.stringify(nextTabs) && JSON.stringify(current.groups) === JSON.stringify(nextGroups)) return;
 
@@ -78,8 +80,13 @@ export async function snapshotWindow(windowId) {
  * Re-creates the saved tabs of `ws` at the end of `windowId`.
  * @returns {Promise<number[]>} ids of tabs that should be lazily discarded once they commit a URL.
  */
-export async function restoreTabs(windowId, ws, { lazy = true } = {}) {
-  const list = ws.tabs.length ? ws.tabs : [{ url: '', pinned: false, active: true, groupKey: null }];
+export async function restoreTabs(windowId, ws, { lazy = true, keepPinned = false } = {}) {
+  // Pinned tabs saved before "keep pinned tabs" was on are restored once, unless the window already has them.
+  const pinnedHere = keepPinned
+    ? new Set((await chrome.tabs.query({ windowId, pinned: true }).catch(() => [])).map((t) => normalizeUrl(t.pendingUrl || t.url)))
+    : new Set();
+  const saved = ws.tabs.filter((t) => !isHomeUrl(t.url) && !(t.pinned && pinnedHere.has(normalizeUrl(t.url))));
+  const list = saved.length ? saved : [{ url: '', pinned: false, active: true, groupKey: null }];
   let activeIndex = list.findIndex((t) => t.active);
   if (activeIndex < 0) activeIndex = Math.max(0, list.findIndex((t) => !t.pinned));
 
@@ -162,6 +169,48 @@ export function discardWhenReady(tabIds, timeoutMs = 8000) {
         .catch(() => pending.delete(id));
     }
   });
+}
+
+export const homeUrl = () => chrome.runtime.getURL(HOME_PAGE);
+const isOwnHome = (tab) => (tab.pendingUrl || tab.url || '').startsWith(homeUrl());
+
+/** Makes sure `windowId` has exactly one home tab, pinned at the far left. */
+export async function ensureHomeTab(windowId) {
+  let tabs;
+  try {
+    tabs = await chrome.tabs.query({ windowId });
+  } catch {
+    return; // window is gone
+  }
+  const [home, ...extra] = tabs.filter(isOwnHome);
+  if (extra.length) await chrome.tabs.remove(extra.map((t) => t.id)).catch(() => {});
+  try {
+    if (!home) {
+      await chrome.tabs.create({ windowId, url: homeUrl(), pinned: true, index: 0, active: false });
+      return;
+    }
+    if (!home.pinned) await chrome.tabs.update(home.id, { pinned: true });
+    if (home.index !== 0) await chrome.tabs.move(home.id, { index: 0 });
+  } catch (err) {
+    console.warn('[open-workspaces] home tab', err);
+  }
+}
+
+/** Adds the home tab to every normal window, or removes it everywhere. */
+export async function syncHomeTabs(enabled) {
+  const windows = (await chrome.windows.getAll({ windowTypes: ['normal'] })).filter((w) => !w.incognito);
+  if (enabled) {
+    for (const win of windows) await withBusyWindow(win.id, () => ensureHomeTab(win.id));
+    return;
+  }
+  const tabs = await chrome.tabs.query({});
+  const homes = tabs.filter(isOwnHome);
+  for (const win of windows) {
+    // Don't let removing the home tab close a window that has nothing else.
+    const own = tabs.filter((t) => t.windowId === win.id);
+    if (own.length && own.every(isOwnHome)) await chrome.tabs.create({ windowId: win.id, active: true }).catch(() => {});
+  }
+  if (homes.length) await chrome.tabs.remove(homes.map((t) => t.id)).catch(() => {});
 }
 
 export async function lastFocusedNormalWindow() {

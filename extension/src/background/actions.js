@@ -2,8 +2,10 @@
 // JSON-serializable data. Wired to chrome.runtime.onMessage in service-worker.js.
 
 import { clearWindowMap, getState, getWindowMap, mutate, replaceState, setWindowWorkspace, unbindWorkspace, windowForWorkspace, workspaceForWindow } from './store.js';
-import { discardWhenReady, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
-import { applyImport, buildExport, isNewTabUrl, makeSection, makeWorkspace, matchWindows, serializeTab, uid } from '../shared/model.js';
+import { discardWhenReady, ensureHomeTab, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
+import {
+  applyImport, buildExport, cleanImage, isNewTabUrl, isWindowFixture, makeSection, makeWorkspace, matchWindows, serializeTab, uid,
+} from '../shared/model.js';
 
 const ws404 = (id) => new Error(`workspace-not-found:${id}`);
 
@@ -20,9 +22,9 @@ function findSection(ws, sectionId) {
 // ---------------------------------------------------------------------------
 // Workspaces
 
-export async function createWorkspace({ name = '', icon = '', color, fromWindowId = null, open = false, windowId = null } = {}) {
+export async function createWorkspace({ name = '', icon = '', image = '', color, fromWindowId = null, open = false, windowId = null } = {}) {
   const ws = await mutate((state) => {
-    const created = makeWorkspace({ name: name.trim(), icon, ...(color ? { color } : {}) }, state.order.length);
+    const created = makeWorkspace({ name: name.trim(), icon, image: cleanImage(image), ...(color ? { color } : {}) }, state.order.length);
     state.workspaces[created.id] = created;
     state.order.push(created.id);
     return created;
@@ -42,6 +44,7 @@ export async function updateWorkspace({ id, patch }) {
   await mutate((state) => {
     const ws = requireWs(state, id);
     for (const key of allowed) if (typeof patch[key] === 'string') ws[key] = key === 'name' ? patch[key].trim() : patch[key];
+    if (typeof patch.image === 'string') ws.image = cleanImage(patch.image);
     ws.updatedAt = Date.now();
   });
 }
@@ -122,7 +125,8 @@ export async function openWorkspace({ id, windowId = null, newWindow = false }) 
   if (!newWindow && state.settings.openMode === 'current' && target != null) {
     const currentWsId = await workspaceForWindow(target);
     const currentTabs = await chrome.tabs.query({ windowId: target });
-    const hasUnsavedTabs = !currentWsId && currentTabs.some((t) => !isNewTabUrl(t.pendingUrl || t.url));
+    const keepPinned = state.settings.keepPinned;
+    const hasUnsavedTabs = !currentWsId && currentTabs.some((t) => !isNewTabUrl(t.pendingUrl || t.url) && !isWindowFixture(t, keepPinned));
     if (!hasUnsavedTabs) return swapWindow(target, id, currentTabs, currentWsId);
   }
   return openInNewWindow(id);
@@ -134,8 +138,11 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
   const ws = workspaces[wsId];
   const lazyIds = await withBusyWindow(windowId, async () => {
     await setWindowWorkspace(windowId, wsId);
-    const ids = await restoreTabs(windowId, ws, { lazy: settings.lazyLoadTabs });
-    if (oldTabs.length) await chrome.tabs.remove(oldTabs.map((t) => t.id)).catch(() => {});
+    const ids = await restoreTabs(windowId, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned });
+    // The home tab and kept pinned tabs belong to the window, so they survive the swap.
+    const leaving = oldTabs.filter((t) => !isWindowFixture(t, settings.keepPinned));
+    if (leaving.length) await chrome.tabs.remove(leaving.map((t) => t.id)).catch(() => {});
+    if (settings.homeTab) await ensureHomeTab(windowId);
     return ids;
   });
   await touchOpened(wsId);
@@ -151,8 +158,9 @@ async function openInNewWindow(wsId) {
   const lazyIds = await withBusyWindow(win.id, async () => {
     const initial = win.tabs?.length ? win.tabs : await chrome.tabs.query({ windowId: win.id });
     await setWindowWorkspace(win.id, wsId);
-    const ids = await restoreTabs(win.id, ws, { lazy: settings.lazyLoadTabs });
+    const ids = await restoreTabs(win.id, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned });
     await chrome.tabs.remove(initial.map((t) => t.id)).catch(() => {});
+    if (settings.homeTab) await ensureHomeTab(win.id);
     return ids;
   });
   await touchOpened(wsId);
@@ -172,7 +180,8 @@ export async function closeWorkspace({ id }) {
     await chrome.windows.remove(windowId).catch(() => {});
     return;
   }
-  const tabs = await chrome.tabs.query({ windowId });
+  const { settings } = await getState();
+  const tabs = (await chrome.tabs.query({ windowId })).filter((t) => !isWindowFixture(t, settings.keepPinned));
   await chrome.tabs.create({ windowId, active: true });
   await chrome.tabs.remove(tabs.map((t) => t.id)).catch(() => {});
 }
@@ -407,7 +416,7 @@ export async function reconcileWindows({ onlyWindowId = null } = {}) {
   const boundWs = new Set(Object.values(await getWindowMap()));
   const candidates = windows
     .filter((w) => !(w.id in map) && (onlyWindowId == null || w.id === onlyWindowId))
-    .map((w) => ({ id: w.id, urls: (w.tabs ?? []).map((t) => t.pendingUrl || t.url) }));
+    .map((w) => ({ id: w.id, urls: (w.tabs ?? []).filter((t) => !isWindowFixture(t, state.settings.keepPinned)).map((t) => t.pendingUrl || t.url) }));
   const free = Object.values(state.workspaces)
     .filter((ws) => !boundWs.has(ws.id) && !ws.archived)
     .map((ws) => ({ id: ws.id, urls: ws.tabs.map((t) => t.url) }));

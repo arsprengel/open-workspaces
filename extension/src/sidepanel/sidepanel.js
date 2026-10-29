@@ -2,9 +2,9 @@
 
 import { html, render, useState } from '../vendor/preact-htm.js';
 import { orderedWorkspaces } from '../shared/model.js';
-import { call, t, useStore, useTheme, useUnsavedWindows, wsLabel } from '../ui/api.js';
+import { call, t, useStore, useTheme, wsLabel } from '../ui/api.js';
 import { Badge, DND, Icon, IconButton, ToastHost, getDrag, hasDrag, run, setDrag } from '../ui/components.js';
-import { NewWorkspaceModal, UnsavedWindowList, WorkspaceDetail, WorkspaceList } from '../ui/views.js';
+import { NewWorkspaceModal, UnsavedSwatch, WorkspaceDetail, WorkspaceList } from '../ui/views.js';
 
 function Rail({ store, onNew }) {
   const [drop, setDrop] = useState(null);
@@ -44,7 +44,7 @@ function Rail({ store, onNew }) {
         onDragLeave=${() => setDrop(null)}
         onDrop=${(e) => onDrop(e, ws)}
         onClick=${(e) => run(call('openWorkspace', { id: ws.id, windowId: store.windowId, newWindow: e.shiftKey }))}
-      ><${Badge} ws=${ws} /></button>`,
+      ><${Badge} ws=${ws} size="md" /></button>`,
     )}
     <button class="rail-item add" title=${t('newWorkspace')} aria-label=${t('newWorkspace')} onClick=${onNew}><${Icon} name="plus" /></button>
     <span class="spacer"></span>
@@ -52,26 +52,19 @@ function Rail({ store, onNew }) {
   </nav>`;
 }
 
-function UnsavedView({ store, onNew }) {
+function UnsavedView({ store, onNew, onSave }) {
   const [filter, setFilter] = useState('');
-  const unsaved = useUnsavedWindows(store.windowMap).filter((w) => w.id === store.windowId);
-  return html`<div style="padding:12px 10px;overflow:auto;flex:1">
-    <div class="card" style="padding:14px;margin-bottom:12px">
-      <div style="font-weight:700;font-size:14px">${t('unsavedWindow')}</div>
-      <p class="muted" style="margin:4px 0 0;font-size:12.5px">${t('unsavedWindowLong')}</p>
+  return html`<div class="detail">
+    <div class="detail-head"><${UnsavedSwatch} wide onSave=${onSave} /></div>
+    <div class="detail-body compact">
+      <p class="muted" style="margin:2px 6px 12px;font-size:12.5px;text-wrap:pretty">${t('unsavedWindowLong')}</p>
+      <div class="search" style="margin:0 2px 4px">
+        <${Icon} name="search" />
+        <input class="input" placeholder=${t('filterWorkspaces')} aria-label=${t('filterWorkspaces')} value=${filter} onInput=${(e) => setFilter(e.target.value)} />
+      </div>
+      <div class="section-label"><span class="grow">${t('workspaces')}</span></div>
+      <${WorkspaceList} store=${store} layout="grid" filter=${filter} onNew=${onNew} onActivate=${(ws) => run(call('openWorkspace', { id: ws.id, windowId: store.windowId }))} />
     </div>
-    <${UnsavedWindowList} windows=${unsaved} store=${store} />
-    <div class="section-label"><span class="grow">${t('workspaces')}</span></div>
-    <div class="search" style="margin:0 2px 6px">
-      <${Icon} name="search" />
-      <input class="input" placeholder=${t('filterWorkspaces')} value=${filter} onInput=${(e) => setFilter(e.target.value)} />
-    </div>
-    <${WorkspaceList} store=${store} filter=${filter} onActivate=${(ws) => run(call('openWorkspace', { id: ws.id, windowId: store.windowId }))} />
-    ${!Object.keys(store.state.workspaces).length &&
-    html`<div class="empty">
-      <p style="margin:0 0 8px">${t('noWorkspacesYet')}</p>
-      <button class="btn primary sm" onClick=${onNew}>${t('newWorkspace')}</button>
-    </div>`}
   </div>`;
 }
 
@@ -79,14 +72,18 @@ function App() {
   const store = useStore();
   useTheme(store?.state);
   const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
   if (!store) return null;
   const current = store.currentId ? store.state.workspaces[store.currentId] : null;
   return html`<div class="sp">
     <${Rail} store=${store} onNew=${() => setCreating(true)} />
     <main>
-      ${current ? html`<${WorkspaceDetail} ws=${current} store=${store} compact />` : html`<${UnsavedView} store=${store} onNew=${() => setCreating(true)} />`}
+      ${current
+        ? html`<${WorkspaceDetail} key=${current.id} ws=${current} store=${store} compact />`
+        : html`<${UnsavedView} store=${store} onNew=${() => setCreating(true)} onSave=${() => setSaving(true)} />`}
     </main>
     ${creating && html`<${NewWorkspaceModal} store=${store} onClose=${() => setCreating(false)} />`}
+    ${saving && html`<${NewWorkspaceModal} store=${store} fromWindowId=${store.windowId} onClose=${() => setSaving(false)} />`}
     <${ToastHost} />
   </div>`;
 }

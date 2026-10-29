@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Home tab: a pinned tab with the extension icon at the left of every window opens a page showing this window's workspace, with every other workspace one click away (can be turned off in settings).
+- Pinned tabs stay open in every workspace instead of being swapped out (can be turned off in settings).
+- Workspace images: upload a PNG, ICO, SVG, JPG or WebP as the workspace icon; custom workspace colors.
+
+### Changed
+
+- New visual design (see DESIGN.md): every workspace is a color swatch. The home tab and dashboard show the current workspace as a large swatch above a rack of all workspaces; popup and side panel use the same swatch laid horizontally. Bundled Archivo and Fragment Mono fonts, large text section tabs, new icon.
+
 ## [0.1.0] - 2026-10-29
 
 First public version.

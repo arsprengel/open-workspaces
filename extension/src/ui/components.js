@@ -40,6 +40,9 @@ const PATHS = {
   pin: '<path d="M12 17v5M9 3h6l-1 6 4 4H6l4-4z"/>',
   heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>',
   code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+  imageUp: '<path d="M21 13v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h7"/><path d="m21 17-3.1-3.1a2 2 0 0 0-2.8 0L9 20"/><circle cx="9" cy="9" r="2"/><path d="M18 9V3M15 5.5 18 3l3 2.5"/>',
+  home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
 };
 
 export function Icon({ name }) {
@@ -63,11 +66,63 @@ export function IconButton({ icon, title, onClick, sm = false, danger = false, .
 // ---------------------------------------------------------------------------
 // Workspace badge & favicons
 
-export function Badge({ ws, lg = false }) {
-  const label = ws?.icon || (ws?.name || '?').trim().charAt(0).toUpperCase() || '?';
-  const cls = `badge${lg ? ' lg' : ''}${ws?.icon ? ' emoji' : ''}`;
-  const style = ws?.icon ? `background:${ws.color}26` : `background:${ws?.color ?? '#64748b'}`;
-  return html`<span class=${cls} style=${style} aria-hidden="true">${label}</span>`;
+/** Black or white, whichever reads better on `hex` (WCAG relative luminance). */
+export function readableOn(hex) {
+  const m = /^#?([\da-f]{3}|[\da-f]{6})$/i.exec(hex ?? '');
+  if (!m) return '#fff';
+  const full = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const v = parseInt(full.slice(i, i + 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? '#17171c' : '#fff';
+}
+
+const initialOf = (ws) => (ws?.name || '?').trim().charAt(0).toUpperCase() || '?';
+
+/** CSS variables that paint a swatch or badge in the workspace's color, with a readable foreground. */
+export function swatchStyle(ws) {
+  const color = ws?.color ?? '#64748b';
+  const fg = readableOn(color);
+  return `--c:${color};--field-fg:${fg};--badge-fg:${fg}`;
+}
+
+/** What sits on a swatch's color field: the uploaded image, else the emoji, else the initial. */
+export function FieldMark({ ws }) {
+  if (ws?.image) return html`<img src=${ws.image} alt="" />`;
+  if (ws?.icon) return html`<span class="sw-glyph" aria-hidden="true">${ws.icon}</span>`;
+  return html`<span class="sw-initial" aria-hidden="true">${initialOf(ws)}</span>`;
+}
+
+/** A workspace's identity at icon size: a tiny swatch. Sizes: sm, md, lg. */
+export function Badge({ ws, lg = false, size = lg ? 'lg' : '' }) {
+  const kind = ws?.image ? 'img' : ws?.icon ? 'emoji' : '';
+  const content = ws?.image ? html`<img src=${ws.image} alt="" />` : ws?.icon || initialOf(ws);
+  const cls = ['badge', size, kind].filter(Boolean).join(' ');
+  return html`<span class=${cls} style=${swatchStyle(ws)} aria-hidden="true">${content}</span>`;
+}
+
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+/** Reads an uploaded image (PNG, ICO, SVG, JPG, WebP...) and returns it as a small square PNG data URL. */
+export async function imageToIcon(file, size = 96) {
+  if (!file || file.size > MAX_UPLOAD_BYTES) throw new Error('image-too-big');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const w = img.naturalWidth || size;
+    const h = img.naturalHeight || size;
+    const scale = Math.min(size / w, size / h);
+    const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size });
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, (size - w * scale) / 2, (size - h * scale) / 2, w * scale, h * scale);
+    return canvas.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function Favicon({ url }) {
@@ -132,38 +187,68 @@ export function Modal({ title, onClose, children }) {
   </div>`;
 }
 
-/** Create / edit a workspace: name, emoji and color. */
+/** Create / edit a workspace: name, color and an icon (uploaded image, emoji or initial). */
 export function WorkspaceForm({ initial = {}, title, submitLabel, onSubmit, onClose }) {
   const [name, setName] = useState(initial.name ?? '');
   const [icon, setIcon] = useState(initial.icon ?? '');
+  const [image, setImage] = useState(initial.image ?? '');
   const [color, setColor] = useState(initial.color ?? COLORS[Math.floor(Math.random() * COLORS.length)]);
   const inputRef = useRef(null);
+  const fileRef = useRef(null);
   useEffect(() => inputRef.current?.focus(), []);
+  const custom = !COLORS.includes(color);
+  const pickIcon = (em) => {
+    setIcon(em);
+    setImage('');
+  };
+  const upload = async (file) => {
+    if (!file) return;
+    try {
+      setImage(await imageToIcon(file));
+      setIcon('');
+    } catch {
+      toast(t('imageFailed'), 'error');
+    } finally {
+      fileRef.current.value = '';
+    }
+  };
   const submit = (e) => {
     e.preventDefault();
-    onSubmit({ name: name.trim(), icon, color });
+    onSubmit({ name: name.trim(), icon, image, color });
   };
   return html`<${Modal} title=${title} onClose=${onClose}>
     <form onSubmit=${submit}>
-      <div class="field">
-        <label for="ws-name">${t('name')}</label>
-        <div class="hstack">
-          <${Badge} ws=${{ name: name || '?', icon, color }} lg />
+      <div class="identity">
+        <div class="sw" style=${swatchStyle({ color })} aria-hidden="true">
+          <div class="sw-field"><${FieldMark} ws=${{ name: name || '?', icon, image, color }} /></div>
+          <div class="sw-label"><span class="mono">${name.trim() || t('untitled')}</span></div>
+        </div>
+        <div class="field">
+          <label for="ws-name">${t('name')}</label>
           <input id="ws-name" ref=${inputRef} class="input" value=${name} maxlength="80" placeholder=${t('workspaceNamePlaceholder')} onInput=${(e) => setName(e.target.value)} />
         </div>
       </div>
       <div class="field">
-        <label>${t('color')}</label>
+        <span class="field-label">${t('color')}</span>
         <div class="swatches">
           ${COLORS.map((c) => html`<button type="button" class="swatch" style=${`background:${c}`} aria-pressed=${c === color} aria-label=${c} onClick=${() => setColor(c)}></button>`)}
+          <label class=${`swatch custom${custom ? ' on' : ''}`} style=${custom ? `background:${color}` : ''} title=${t('customColor')}>
+            ${!custom && html`<${Icon} name="plus" />`}
+            <input type="color" value=${color} aria-label=${t('customColor')} onInput=${(e) => setColor(e.target.value)} />
+          </label>
         </div>
       </div>
       <div class="field">
-        <label>${t('icon')}</label>
-        <div class="emoji-grid">
-          <button type="button" aria-pressed=${!icon} title=${t('noIcon')} onClick=${() => setIcon('')} style="font-size:12px;font-weight:700">Aa</button>
-          ${EMOJIS.map((em) => html`<button type="button" aria-pressed=${em === icon} onClick=${() => setIcon(em)}>${em}</button>`)}
+        <div class="field-row">
+          <span class="field-label">${t('icon')}</span>
+          <button type="button" class="btn sm ghost" title=${t('uploadImageHint')} onClick=${() => fileRef.current.click()}><${Icon} name="imageUp" />${t('uploadImage')}</button>
         </div>
+        <div class="emoji-grid">
+          ${image && html`<button type="button" class="upload" aria-pressed="true" title=${t('uploadImage')} onClick=${() => fileRef.current.click()}><img src=${image} alt="" /></button>`}
+          <button type="button" class="letter" aria-pressed=${!icon && !image} title=${t('noIcon')} onClick=${() => pickIcon('')}>Aa</button>
+          ${EMOJIS.map((em) => html`<button type="button" aria-pressed=${em === icon && !image} onClick=${() => pickIcon(em)}>${em}</button>`)}
+        </div>
+        <input ref=${fileRef} type="file" accept="image/*,.ico,.svg" hidden onChange=${(e) => upload(e.target.files[0])} />
       </div>
       <div class="foot">
         <button type="button" class="btn" onClick=${onClose}>${t('cancel')}</button>

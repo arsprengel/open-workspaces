@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "ai-color-palette",
+        "value": "*",
+        "files": [
+          "extension/src/ui/theme.css"
+        ],
+        "createdAt": "2026-10-29T20:14:02.154Z",
+        "reason": "user confirmed: asked to keep the purple brand color ('eu gosto do roxo'); DESIGN.md Color strategy records it"
+      }
+    ]
+  }
+}

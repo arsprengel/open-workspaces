@@ -12,7 +12,7 @@
 <p align="center"><a href="README.md">English</a></p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Painel" width="49%" />
+  <img src="docs/screenshots/home.png" alt="Aba inicial: o workspace desta janela" width="49%" />
   <img src="docs/screenshots/sidepanel-dark.png" alt="Painel lateral" width="24%" />
 </p>
 
@@ -22,10 +22,12 @@ Gerenciadores como o Workona são ótimos até você passar dez minutos organiza
 
 ## Funcionalidades
 
-- **Workspaces ilimitados**, com nome, emoji e cor.
+- **Workspaces ilimitados**, com nome, cor (pronta ou personalizada) e ícone: emoji, inicial ou uma imagem sua (PNG, ICO, SVG, JPG, WebP).
+- **Aba inicial.** Uma aba fixa pequena com o ícone da extensão fica à esquerda de cada janela. Clique nela para ver o workspace desta janela e trocar para qualquer outro com um clique.
+- **Abas fixadas ficam no lugar.** Abas que você fixa no navegador (Gmail, YouTube...) pertencem à janela e continuam abertas em todos os workspaces.
 - **Troca na mesma janela** (ou em janela nova, você escolhe). Tudo é salvo automaticamente.
 - **Você não perde abas:** janelas com abas não salvas nunca são substituídas, fechar um workspace mantém as abas salvas, e janelas reabertas (Ctrl+Shift+T ou depois de reiniciar o navegador) são religadas ao workspace sozinhas.
-- **Grupos de abas e abas fixadas** são preservados.
+- **Grupos de abas** são preservados.
 - **Recursos:** links importantes em seções, com arrastar e soltar.
 - **Notas e tarefas** em cada workspace.
 - **Troca rápida** (Alt+A) com busca em workspaces, abas salvas e recursos.

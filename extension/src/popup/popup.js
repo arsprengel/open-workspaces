@@ -4,7 +4,7 @@ import { html, render, useEffect, useMemo, useRef, useState } from '../vendor/pr
 import { POPUP_INTENT_KEY } from '../shared/constants.js';
 import { hostname, isNewTabUrl, orderedWorkspaces, realTabCount, search } from '../shared/model.js';
 import { call, openUrl, t, useStore, useTheme, wsLabel } from '../ui/api.js';
-import { Badge, Favicon, Icon, IconButton, ToastHost, run } from '../ui/components.js';
+import { Badge, Favicon, FieldMark, Icon, IconButton, ToastHost, run, swatchStyle } from '../ui/components.js';
 import { NewWorkspaceModal } from '../ui/views.js';
 
 async function takeIntent() {
@@ -81,8 +81,8 @@ function App() {
   const canSaveTab = activeTab && !isNewTabUrl(activeTab.url);
 
   return html`<div class="popup">
-    <header class="hstack" style="padding:10px 10px 6px">
-      <div class="search" style="flex:1">
+    <header class="popup-head">
+      <div class="search popup-search">
         <${Icon} name="search" />
         <input
           ref=${inputRef}
@@ -106,38 +106,43 @@ function App() {
     </header>
 
     ${moving &&
-    html`<div class="hstack" style="padding:2px 14px 6px;font-size:12px">
+    html`<div class="moving">
       <span class="muted">${t('movingTab')}</span>
       ${activeTab && html`<${Favicon} url=${activeTab.url} /><span class="truncate" style="font-weight:600">${activeTab.title}</span>`}
     </div>`}
 
     ${!moving && !query &&
-    html`<div style="padding:0 10px">
+    html`<div class="popup-current">
       ${current
-        ? html`<div class="current hstack">
-            <${Badge} ws=${current} />
-            <div style="flex:1;min-width:0">
-              <div class="truncate" style="font-weight:600">${wsLabel(current)}</div>
-              <div class="muted" style="font-size:11.5px">${t('currentWorkspace')}</div>
+        ? html`<div class="sw wide" style=${swatchStyle(current)}>
+            <div class="sw-field"><${FieldMark} ws=${current} /></div>
+            <div class="sw-label">
+              <div class="sw-head">
+                <div class="sw-name truncate">${wsLabel(current)}</div>
+                ${canSaveTab && html`<${IconButton} icon="bookmark" title=${t('saveTabAsResource')} onClick=${() => run(call('addResources', { wsId: current.id, items: [{ url: activeTab.url, title: activeTab.title }] }), t('savedToResources'))} />`}
+                <${IconButton} icon="power" title=${t('closeWorkspace')} onClick=${async () => {
+                  await run(call('closeWorkspace', { id: current.id }));
+                  window.close();
+                }} />
+              </div>
+              <div class="sw-code mono">${realTabCount(current) === 1 ? t('tabCountOne') : t('tabCount', realTabCount(current))} · ${t('currentWorkspace')}</div>
             </div>
-            ${canSaveTab && html`<${IconButton} icon="bookmark" title=${t('saveTabAsResource')} onClick=${() => run(call('addResources', { wsId: current.id, items: [{ url: activeTab.url, title: activeTab.title }] }), t('savedToResources'))} />`}
-            <${IconButton} icon="power" title=${t('closeWorkspace')} onClick=${async () => {
-              await run(call('closeWorkspace', { id: current.id }));
-              window.close();
-            }} />
           </div>`
-        : html`<div class="current hstack">
-            <span class="badge" style="background:var(--surface-2);color:var(--muted)"><${Icon} name="window" /></span>
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600">${t('unsavedWindow')}</div>
-              <div class="muted" style="font-size:11.5px">${t('unsavedWindowHint')}</div>
+        : html`<div class="sw wide neutral">
+            <div class="sw-field"><${Icon} name="window" /></div>
+            <div class="sw-label">
+              <div class="sw-head">
+                <div class="sw-name truncate">${t('unsavedWindow')}</div>
+                <button class="btn sm primary" onClick=${() => setCreating('window')}><${Icon} name="save" />${t('save')}</button>
+              </div>
+              <div class="sw-code mono">${t('unsavedWindowHint')}</div>
             </div>
-            <button class="btn sm primary" onClick=${() => setCreating('window')}><${Icon} name="save" />${t('save')}</button>
           </div>`}
     </div>`}
 
     <div class="list" ref=${listRef} role="listbox">
-      ${!query && !moving && items.length > 0 && html`<div class="section-label">${t('workspaces')}</div>`}
+      ${!query && !moving && items.length > 0 && html`<div class="section-label"><span class="grow">${t('workspaces')}</span><span class="count">${items.length}</span></div>`}
+      ${moving && items.length > 0 && html`<div class="section-label">${t('moveToWorkspace')}</div>`}
       ${items.map((item, i) => {
         const kb = i === cursor;
         if (item.type === 'workspace') {
@@ -151,10 +156,10 @@ function App() {
             onMouseMove=${() => cursor !== i && setCursor(i)}
             onClick=${(e) => activate(item, { newWindow: e.shiftKey })}
           >
-            <${Badge} ws=${ws} />
+            <${Badge} ws=${ws} size="md" />
             <div class="grow"><div class="title">${wsLabel(ws)}${ws.archived ? html` <span class="muted">· ${t('archivedLabel')}</span>` : ''}</div></div>
-            ${open && html`<span class="dot" title=${t('open')}></span>`}
-            <span class="meta">${realTabCount(ws) === 1 ? t('tabCountOne') : t('tabCount', realTabCount(ws))}</span>
+            ${open && html`<span class="dot" title=${ws.id === store.currentId ? t('currentWindow') : t('openInAnotherWindow')}></span>`}
+            <span class="meta">${realTabCount(ws) || ''}</span>
           </div>`;
         }
         return html`<div
@@ -175,13 +180,14 @@ function App() {
       ${!items.length &&
       html`<div class="empty" style="margin:8px 4px">
         ${query ? t('noResults') : t('noWorkspacesYet')}
+        ${!query && html`<div style="margin-top:10px"><button class="btn primary sm" onClick=${() => setCreating(true)}><${Icon} name="plus" />${t('newWorkspace')}</button></div>`}
       </div>`}
     </div>
 
-    <footer class="hstack">
+    <footer class="popup-foot">
       <button class="btn sm ghost" onClick=${() => setCreating(true)}><${Icon} name="plus" />${t('newWorkspace')}</button>
       <span class="spacer"></span>
-      <span class="muted" style="font-size:11px"><span class="kbd">↑↓</span> <span class="kbd">↵</span> ${t('open')} · <span class="kbd">⇧↵</span> ${t('newWindow')}</span>
+      <span class="keys"><span class="kbd">↵</span>${t('open')}<span class="kbd">⇧↵</span>${t('newWindow')}</span>
     </footer>
 
     ${creating &&

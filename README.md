@@ -18,8 +18,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="49%" />
-  <img src="docs/screenshots/dashboard-resources-dark.png" alt="Resources, dark mode" width="49%" />
+  <img src="docs/screenshots/home.png" alt="Home tab: the workspace of this window" width="49%" />
+  <img src="docs/screenshots/home-resources-dark.png" alt="Resources, dark mode" width="49%" />
 </p>
 <p align="center">
   <img src="docs/screenshots/popup.png" alt="Quick switcher" width="32%" />
@@ -35,10 +35,12 @@ Workspace managers like Workona are great until you've spent ten minutes organiz
 
 ## Features
 
-- **Unlimited workspaces.** Each workspace is a set of tabs with a name, emoji and color.
+- **Unlimited workspaces.** Each workspace is a set of tabs with a name, a color (preset or custom) and an icon: an emoji, its initial or an image you upload (PNG, ICO, SVG, JPG, WebP).
+- **Home tab.** A small pinned tab with the extension icon sits at the left of every window. Click it to see the workspace of this window and switch to any other in one click.
+- **Pinned tabs stay put.** Tabs you pin in the browser (Gmail, YouTube...) belong to the window and stay open in every workspace.
 - **Switch in place.** Opening a workspace swaps the tabs of the current window (or opens a new window, your choice). Everything is saved automatically as you browse.
 - **Never lose tabs.** Windows with unsaved tabs are never replaced; closing a workspace keeps its tabs saved; a window you reopen (Ctrl+Shift+T or after a browser restart) is re-linked to its workspace automatically.
-- **Tab groups are preserved**, including title, color and collapsed state, plus pinned tabs.
+- **Tab groups are preserved**, including title, color and collapsed state.
 - **Resources:** keep important links in named sections per workspace. Drag and drop to reorder or move them between sections and workspaces, drag a tab in to save it, or paste a link.
 - **Notes and tasks** for every workspace.
 - **Quick switcher** (Alt+A): keyboard-first search across workspaces, saved tabs and resources.

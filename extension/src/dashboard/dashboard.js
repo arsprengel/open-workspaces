@@ -1,12 +1,19 @@
 // Full-page dashboard: manage every workspace, settings and backups.
+// The same page runs in the pinned home tab (home.html sets data-mode="home"): there the sidebar
+// switches this window's workspace and the main area always shows the workspace in this window.
 
 import { html, render, useEffect, useState } from '../vendor/preact-htm.js';
-import { orderedWorkspaces } from '../shared/model.js';
-import { t, useStore, useTheme, useUnsavedWindows } from '../ui/api.js';
-import { Icon, ToastHost } from '../ui/components.js';
-import { NewWorkspaceModal, SettingsView, UnsavedWindowList, WorkspaceDetail, WorkspaceList } from '../ui/views.js';
+import { isHomeUrl, isNewTabUrl, isWindowFixture, orderedWorkspaces } from '../shared/model.js';
+import { call, t, useStore, useTheme, useUnsavedWindows, useWindowTabs, wsLabel } from '../ui/api.js';
+import { Favicon, Icon, ToastHost, run } from '../ui/components.js';
+import {
+  NewWorkspaceModal, PinnedStrip, SettingsView, UnsavedSwatch, UnsavedWindowList, WorkspaceDetail, WorkspaceList, WorkspaceSwatch,
+} from '../ui/views.js';
 
 import { REPO_URL } from '../shared/constants.js';
+
+const HOME = document.documentElement.dataset.mode === 'home';
+const dashboardUrl = (hash = '') => chrome.runtime.getURL(`src/dashboard/dashboard.html${hash}`);
 
 function useRoute() {
   const parse = () => {
@@ -34,15 +41,15 @@ function Welcome({ store, onNew }) {
     { icon: 'bookmark', title: t('welcomeStep3Title'), text: t('welcomeStep3Text') },
     { icon: 'pause', title: t('welcomeStep4Title'), text: t('welcomeStep4Text') },
   ];
-  return html`<div style="max-width:720px;margin:0 auto;padding:48px 24px">
-    <img src="../../icons/icon-128.png" width="64" height="64" alt="" />
-    <h1 style="font-size:28px;margin:16px 0 6px">${t('welcomeTitle')}</h1>
-    <p class="muted" style="font-size:15px;margin:0 0 28px">${t('welcomeSubtitle')}</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+  return html`<div style="max-width:760px;margin:0 auto;padding:56px 28px">
+    <img src="../../icons/icon-128.png" width="56" height="56" alt="" />
+    <h1 class="display" style="margin:20px 0 10px">${t('welcomeTitle')}</h1>
+    <p class="muted" style="font-size:15px;margin:0 0 32px;max-width:560px;text-wrap:pretty">${t('welcomeSubtitle')}</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
       ${steps.map(
-        (s) => html`<div class="card" style="padding:16px">
-          <div class="hstack" style="font-weight:700;margin-bottom:6px"><span style="color:var(--accent)"><${Icon} name=${s.icon} /></span>${s.title}</div>
-          <div class="muted">${s.text}</div>
+        (s) => html`<div class="card" style="padding:16px 18px">
+          <div class="hstack" style="font-weight:650;margin-bottom:6px"><span style="color:var(--accent-text)"><${Icon} name=${s.icon} /></span>${s.title}</div>
+          <div class="muted" style="text-wrap:pretty">${s.text}</div>
         </div>`,
       )}
     </div>
@@ -56,45 +63,78 @@ function Welcome({ store, onNew }) {
   </div>`;
 }
 
-function Sidebar({ store, route, onNew }) {
+/** The swatch book: the featured workspace as a big swatch, then the rack of every workspace. */
+function Sidebar({ store, route, featured, onNew, onSave }) {
   const [filter, setFilter] = useState('');
   const [showArchive, setShowArchive] = useState(false);
-  const unsaved = useUnsavedWindows(store.windowMap);
+  const unsaved = useUnsavedWindows(store.windowMap).filter((w) => !HOME || w.id !== store.windowId);
   const archivedCount = orderedWorkspaces(store.state, { archived: true }).length;
-  const select = (ws) => go(`#/ws/${ws.id}`);
+  // In the home tab a click switches this window; in the dashboard it selects the workspace to manage.
+  const select = HOME ? (ws) => ws.id !== store.currentId && run(call('openWorkspace', { id: ws.id, windowId: store.windowId })) : (ws) => go(`#/ws/${ws.id}`);
+  const selectedId = HOME ? store.currentId : route.view === 'ws' ? route.id : null;
+  const count = orderedWorkspaces(store.state).length;
 
   return html`<aside class="sidebar">
-    <div class="hstack" style="padding:14px 12px 10px">
+    <div class="brand">
       <img src="../../icons/icon-32.png" width="22" height="22" alt="" />
-      <strong style="font-size:15px">Open Workspaces</strong>
-    </div>
-    <div style="padding:0 10px 8px" class="vstack">
-      <div class="search">
-        <${Icon} name="search" />
-        <input class="input" placeholder=${t('filterWorkspaces')} value=${filter} onInput=${(e) => setFilter(e.target.value)} />
-      </div>
-      <button class="btn primary" onClick=${onNew}><${Icon} name="plus" />${t('newWorkspace')}</button>
+      <span>Open Workspaces</span>
     </div>
     <div class="sidebar-scroll">
+      ${featured
+        ? html`<${WorkspaceSwatch} key=${featured.id} ws=${featured} store=${store} />`
+        : HOME && html`<${UnsavedSwatch} onSave=${onSave} />`}
+      <div class="section-label"><span class="grow">${t('workspaces')}</span>${count > 0 && html`<span class="count">${count}</span>`}</div>
+      ${count > 6 &&
+      html`<div class="search rack-search">
+        <${Icon} name="search" />
+        <input class="input" placeholder=${t('filterWorkspaces')} aria-label=${t('filterWorkspaces')} value=${filter} onInput=${(e) => setFilter(e.target.value)} />
+      </div>`}
+      <${WorkspaceList} store=${store} layout="grid" filter=${filter} selectedId=${selectedId} onActivate=${select} onNew=${onNew} />
       ${unsaved.length > 0 &&
-      html`<div class="section-label">${t('unsavedWindows')}</div>
-        <div style="padding:0 6px"><${UnsavedWindowList} windows=${unsaved} store=${store} /></div>`}
-      <div class="section-label">${t('workspaces')}</div>
-      <div style="padding:0 6px">
-        <${WorkspaceList} store=${store} filter=${filter} selectedId=${route.view === 'ws' ? route.id : null} onActivate=${select} />
-        ${!Object.keys(store.state.workspaces).length && html`<div class="muted" style="padding:6px 8px;font-size:12.5px">${t('noWorkspacesYet')}</div>`}
-      </div>
+      html`<div class="section-label"><span class="grow">${t('unsavedWindows')}</span><span class="count">${unsaved.length}</span></div>
+        <${UnsavedWindowList} windows=${unsaved} store=${store} layout="grid" />`}
       ${archivedCount > 0 &&
-      html`<button class="section-label" style="border:0;background:none;width:100%;cursor:pointer" onClick=${() => setShowArchive((v) => !v)}>
-          <${Icon} name=${showArchive ? 'chevronDown' : 'chevronRight'} /><span class="grow" style="text-align:left">${t('archive')} · ${archivedCount}</span>
+      html`<button class="section-label" aria-expanded=${showArchive} onClick=${() => setShowArchive((v) => !v)}>
+          <${Icon} name=${showArchive ? 'chevronDown' : 'chevronRight'} /><span class="grow">${t('archive')}</span><span class="count">${archivedCount}</span>
         </button>
-        ${showArchive && html`<div style="padding:0 6px"><${WorkspaceList} store=${store} archived filter=${filter} selectedId=${route.view === 'ws' ? route.id : null} onActivate=${select} /></div>`}`}
+        ${showArchive && html`<${WorkspaceList} store=${store} layout="grid" archived filter=${filter} selectedId=${selectedId} onActivate=${select} />`}`}
     </div>
     <div class="sidebar-foot">
-      <a class=${`row${route.view === 'settings' ? ' selected' : ''}`} href="#/settings" style="color:inherit;text-decoration:none"><${Icon} name="settings" />${t('settings')}</a>
-      <a class="row" href=${REPO_URL} target="_blank" rel="noopener" style="color:inherit;text-decoration:none"><${Icon} name="heart" />${t('contribute')}</a>
+      ${HOME
+        ? html`<a class="row" href=${dashboardUrl('#/settings')} target="_blank"><${Icon} name="settings" />${t('settings')}</a>`
+        : html`<a class=${`row${route.view === 'settings' ? ' selected' : ''}`} href="#/settings"><${Icon} name="settings" />${t('settings')}</a>`}
+      <a class="row" href=${REPO_URL} target="_blank" rel="noopener"><${Icon} name="heart" />${t('contribute')}</a>
     </div>
   </aside>`;
+}
+
+/** Home tab, window without a workspace: offer to save it, show what stays pinned. */
+function HomeUnsaved({ store }) {
+  const keepPinned = store.state.settings.keepPinned;
+  const live = useWindowTabs(store.windowId).filter((tab) => !isHomeUrl(tab.pendingUrl || tab.url));
+  const pinned = keepPinned ? live.filter((tab) => tab.pinned) : [];
+  const tabs = live.filter((tab) => !isWindowFixture(tab, keepPinned) && !isNewTabUrl(tab.pendingUrl || tab.url));
+  const focus = (tab) => chrome.tabs.update(tab.id, { active: true });
+  return html`<div class="detail">
+    <div class="detail-body">
+      <div class="vstack" style="gap:16px">
+        <p class="muted" style="max-width:560px;margin:0;text-wrap:pretty">${t('unsavedWindowLong')}</p>
+        <${PinnedStrip} tabs=${pinned} windowId=${store.windowId} />
+        ${tabs.length > 0 &&
+        html`<div class="card">
+          <div class="card-head"><span class="grow name">${t('windowTabs')} <span class="muted">${tabs.length}</span></span></div>
+          <div class="card-body">
+            ${tabs.map(
+              (tab) => html`<div key=${tab.id} class="row" title=${tab.url} tabindex="0" onClick=${() => focus(tab)} onKeyDown=${(e) => e.key === 'Enter' && focus(tab)}>
+                <${Favicon} url=${tab.pendingUrl || tab.url} />
+                <div class="grow"><div class="title">${tab.title || tab.url}</div></div>
+              </div>`,
+            )}
+          </div>
+        </div>`}
+      </div>
+    </div>
+  </div>`;
 }
 
 function App() {
@@ -102,10 +142,11 @@ function App() {
   useTheme(store?.state);
   const route = useRoute();
   const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Default route: the workspace of this window, else the welcome page.
   useEffect(() => {
-    if (!store || route.view) return;
+    if (HOME || !store || route.view) return;
     if (new URLSearchParams(location.search).has('welcome')) go('#/welcome');
     else if (store.currentId) go(`#/ws/${store.currentId}`);
     else {
@@ -115,25 +156,30 @@ function App() {
   }, [store, route.view]);
 
   if (!store) return null;
-  const ws = route.view === 'ws' ? store.state.workspaces[route.id] : null;
-  document.title = ws ? `${ws.icon ? `${ws.icon} ` : ''}${ws.name || t('untitled')} · Open Workspaces` : 'Open Workspaces';
+  const ws = HOME ? (store.currentId ? store.state.workspaces[store.currentId] : null) : route.view === 'ws' ? store.state.workspaces[route.id] : null;
+  // The home tab's tooltip names the workspace of this window.
+  if (HOME) document.title = ws ? wsLabel(ws) : 'Open Workspaces';
+  else document.title = ws ? `${ws.icon ? `${ws.icon} ` : ''}${wsLabel(ws)} · Open Workspaces` : 'Open Workspaces';
 
   let main;
-  if (route.view === 'settings') {
-    main = html`<div style="padding:24px;overflow:auto;flex:1">
-      <h1 style="font-size:22px;margin:0 0 18px">${t('settings')}</h1>
+  if (HOME) {
+    main = ws ? html`<${WorkspaceDetail} key=${ws.id} ws=${ws} store=${store} header=${false} />` : html`<${HomeUnsaved} store=${store} />`;
+  } else if (route.view === 'settings') {
+    main = html`<div class="page"><div class="page-inner">
+      <h1 class="page-title">${t('settings')}</h1>
       <${SettingsView} state=${store.state} />
-    </div>`;
+    </div></div>`;
   } else if (ws) {
-    main = html`<${WorkspaceDetail} key=${ws.id} ws=${ws} store=${store} />`;
+    main = html`<${WorkspaceDetail} key=${ws.id} ws=${ws} store=${store} header=${false} />`;
   } else {
-    main = html`<div style="overflow:auto;flex:1"><${Welcome} store=${store} onNew=${() => setCreating(true)} /></div>`;
+    main = html`<div class="page"><${Welcome} store=${store} onNew=${() => setCreating(true)} /></div>`;
   }
 
   return html`<div class="dash">
-    <${Sidebar} store=${store} route=${route} onNew=${() => setCreating(true)} />
+    <${Sidebar} store=${store} route=${route} featured=${ws} onNew=${() => setCreating(true)} onSave=${() => setSaving(true)} />
     <main>${main}</main>
-    ${creating && html`<${NewWorkspaceModal} store=${store} open=${false} onClose=${() => setCreating(false)} onCreated=${(id) => go(`#/ws/${id}`)} />`}
+    ${creating && html`<${NewWorkspaceModal} store=${store} open=${HOME} onClose=${() => setCreating(false)} onCreated=${(id) => !HOME && go(`#/ws/${id}`)} />`}
+    ${saving && html`<${NewWorkspaceModal} store=${store} fromWindowId=${store.windowId} onClose=${() => setSaving(false)} />`}
     <${ToastHost} />
   </div>`;
 }

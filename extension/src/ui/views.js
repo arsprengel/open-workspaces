@@ -1,11 +1,11 @@
 // Workspace-level views shared by the side panel and the dashboard.
 
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js';
-import { hostname, isNewTabUrl, orderedWorkspaces, realTabCount } from '../shared/model.js';
+import { hostname, isHomeUrl, isNewTabUrl, isWindowFixture, orderedWorkspaces, realTabCount } from '../shared/model.js';
 import { call, downloadJson, openUrl, relativeTime, t, useWindowTabs, wsLabel } from './api.js';
 import {
-  Badge, DND, Favicon, GROUP_COLORS, Icon, IconButton, InlineInput, Menu, MenuItem, MenuSep, MenuTitle,
-  Modal, Switch, WorkspaceForm, getDrag, hasDrag, run, setDrag, toast,
+  Badge, DND, Favicon, FieldMark, GROUP_COLORS, Icon, IconButton, InlineInput, Menu, MenuItem, MenuSep, MenuTitle,
+  Modal, Switch, WorkspaceForm, getDrag, hasDrag, run, setDrag, swatchStyle, toast,
 } from './components.js';
 
 // ---------------------------------------------------------------------------
@@ -64,7 +64,8 @@ export function NewWorkspaceModal({ store, fromWindowId = null, open = true, onC
 // ---------------------------------------------------------------------------
 // Workspace list (sidebar)
 
-export function WorkspaceList({ store, archived = false, selectedId, onActivate, filter = '' }) {
+export function WorkspaceList({ store, archived = false, selectedId, onActivate, onNew, filter = '', layout = 'list' }) {
+  const grid = layout === 'grid';
   const [drop, setDrop] = useState(null); // { id, pos: 'before'|'after'|'into' }
   const [dragId, setDragId] = useState(null);
   const [editing, setEditing] = useState(null);
@@ -77,7 +78,8 @@ export function WorkspaceList({ store, archived = false, selectedId, onActivate,
     e.preventDefault();
     if (isWs && !archived) {
       const r = e.currentTarget.getBoundingClientRect();
-      setDrop({ id: ws.id, pos: e.clientY < r.top + r.height / 2 ? 'before' : 'after' });
+      const before = grid ? e.clientX < r.left + r.width / 2 : e.clientY < r.top + r.height / 2;
+      setDrop({ id: ws.id, pos: before ? 'before' : 'after' });
     } else if (!isWs) setDrop({ id: ws.id, pos: 'into' });
   };
 
@@ -100,7 +102,60 @@ export function WorkspaceList({ store, archived = false, selectedId, onActivate,
     }
   };
 
-  if (!list.length) return q ? html`<div class="muted" style="padding:8px">${t('noResults')}</div>` : null;
+  const newRow = onNew && !q && (grid
+    ? html`<button type="button" class="ws-chip add" onClick=${onNew}><${Icon} name="plus" /><span>${t('newWorkspace')}</span></button>`
+    : html`<button type="button" class="row new-row" style="width:100%;border:0;background:none;font:inherit" onClick=${onNew}>
+        <span class="plus"><${Icon} name="plus" /></span><span class="grow" style="text-align:left">${t('newWorkspace')}</span>
+      </button>`);
+  if (!list.length) return q ? html`<div class="muted" style="padding:8px">${t('noResults')}</div>` : newRow ? html`<div class=${grid ? 'rack' : ''}>${newRow}</div>` : null;
+  const dnd = (ws) => ({
+    draggable: 'true',
+    onDragStart: (e) => {
+      setDragId(ws.id);
+      setDrag(e, DND.workspace, { id: ws.id });
+    },
+    onDragEnd: () => {
+      setDragId(null);
+      setDrop(null);
+    },
+    onDragOver: (e) => onDragOver(e, ws),
+    onDragLeave: () => setDrop((d) => (d?.id === ws.id ? null : d)),
+    onDrop: (e) => onDrop(e, ws),
+  });
+
+  if (grid) {
+    return html`<div class="rack" role="list">
+      ${list.map((ws) => {
+        const open = store.isOpen(ws.id);
+        const count = realTabCount(ws);
+        const cls = ['ws-chip', selectedId === ws.id && 'current', dragId === ws.id && 'dragging', drop?.id === ws.id && `drop-${drop.pos}`].filter(Boolean).join(' ');
+        return html`<div
+          key=${ws.id}
+          class=${cls}
+          style=${swatchStyle(ws)}
+          role="listitem"
+          tabindex="0"
+          title=${wsLabel(ws)}
+          aria-current=${selectedId === ws.id ? 'true' : undefined}
+          onClick=${() => onActivate(ws)}
+          onKeyDown=${(e) => e.key === 'Enter' && onActivate(ws)}
+          ...${dnd(ws)}
+        >
+          <div class="sw-field"><${FieldMark} ws=${ws} /></div>
+          <div class="chip-label">
+            <div class="chip-name">${wsLabel(ws)}</div>
+            <div class="chip-code mono">
+              ${open && html`<span class="dot" title=${store.currentId === ws.id ? t('currentWindow') : t('openInAnotherWindow')}></span>`}
+              ${count === 1 ? t('tabCountOne') : t('tabCount', count)}
+            </div>
+          </div>
+          <div class="chip-menu"><${Menu} sm>${() => html`<${WorkspaceMenuItems} ws=${ws} store=${store} onEdit=${() => setEditing(ws)} />`}<//></div>
+        </div>`;
+      })}
+      ${newRow}
+      ${editing && html`<${EditWorkspaceModal} ws=${editing} onClose=${() => setEditing(null)} />`}
+    </div>`;
+  }
 
   return html`<div role="list">
     ${list.map((ws) => {
@@ -112,21 +167,10 @@ export function WorkspaceList({ store, archived = false, selectedId, onActivate,
         class=${cls}
         role="listitem"
         tabindex="0"
-        draggable="true"
         title=${wsLabel(ws)}
         onClick=${() => onActivate(ws)}
         onKeyDown=${(e) => e.key === 'Enter' && onActivate(ws)}
-        onDragStart=${(e) => {
-          setDragId(ws.id);
-          setDrag(e, DND.workspace, { id: ws.id });
-        }}
-        onDragEnd=${() => {
-          setDragId(null);
-          setDrop(null);
-        }}
-        onDragOver=${(e) => onDragOver(e, ws)}
-        onDragLeave=${() => setDrop((d) => (d?.id === ws.id ? null : d))}
-        onDrop=${(e) => onDrop(e, ws)}
+        ...${dnd(ws)}
       >
         <${Badge} ws=${ws} />
         <div class="grow">
@@ -139,30 +183,52 @@ export function WorkspaceList({ store, archived = false, selectedId, onActivate,
         </div>
       </div>`;
     })}
+    ${newRow}
     ${editing && html`<${EditWorkspaceModal} ws=${editing} onClose=${() => setEditing(null)} />`}
   </div>`;
 }
 
 /** Windows that aren't saved as a workspace, with a "Save" button. */
-export function UnsavedWindowList({ windows, store }) {
+export function UnsavedWindowList({ windows, store, layout = 'list' }) {
   const [saving, setSaving] = useState(null);
   if (!windows.length) return null;
+  const describe = (win) => {
+    const tabs = (win.tabs ?? []).filter((tab) => !isNewTabUrl(tab.pendingUrl || tab.url) && !isWindowFixture(tab, store.state.settings.keepPinned));
+    const first = tabs[0];
+    const name = first ? (/^https?:/.test(first.url) ? hostname(first.url) : first.title || first.url) : '';
+    return { tabs, name: name || t('emptyWindow') };
+  };
+  const modal = saving != null && html`<${NewWorkspaceModal} store=${store} fromWindowId=${saving} onClose=${() => setSaving(null)} />`;
+  if (layout === 'grid') {
+    return html`<div class="rack">
+      ${windows.map((win) => {
+        const { tabs, name } = describe(win);
+        return html`<div key=${win.id} class="ws-chip neutral" role="button" tabindex="0" title=${t('focusWindow')} onClick=${() => chrome.windows.update(win.id, { focused: true })}>
+          <div class="sw-field"><${Icon} name="window" /></div>
+          <div class="chip-label">
+            <div class="chip-name">${name}</div>
+            <div class="chip-code mono">${win.id === store.windowId ? t('thisWindow') : tabs.length === 1 ? t('tabCountOne') : t('tabCount', tabs.length)}</div>
+          </div>
+          <button class="btn sm chip-save" onClick=${(e) => (e.stopPropagation(), setSaving(win.id))}>${t('save')}</button>
+        </div>`;
+      })}
+      ${modal}
+    </div>`;
+  }
   return html`<div>
     ${windows.map((win) => {
-      const tabs = (win.tabs ?? []).filter((tab) => !isNewTabUrl(tab.pendingUrl || tab.url));
-      const first = tabs[0];
-      const name = first ? (/^https?:/.test(first.url) ? hostname(first.url) : first.title || first.url) : '';
-      const label = first ? (tabs.length > 1 ? t('tabAndMore', name, tabs.length - 1) : name) : t('emptyWindow');
+      const { tabs, name } = describe(win);
+      const label = tabs.length > 1 ? t('tabAndMore', name, tabs.length - 1) : name;
       return html`<div key=${win.id} class="row" onClick=${() => chrome.windows.update(win.id, { focused: true })} title=${t('focusWindow')}>
-        <span class="badge" style="background:var(--surface-2);color:var(--muted)"><${Icon} name="window" /></span>
+        <span class="badge neutral"><${Icon} name="window" /></span>
         <div class="grow">
           <div class="title">${label}</div>
           ${win.id === store.windowId && html`<div class="sub">${t('thisWindow')}</div>`}
         </div>
-        <button class="btn sm primary" onClick=${(e) => (e.stopPropagation(), setSaving(win.id))}>${t('save')}</button>
+        <button class="btn sm" onClick=${(e) => (e.stopPropagation(), setSaving(win.id))}>${t('save')}</button>
       </div>`;
     })}
-    ${saving != null && html`<${NewWorkspaceModal} store=${store} fromWindowId=${saving} onClose=${() => setSaving(null)} />`}
+    ${modal}
   </div>`;
 }
 
@@ -171,7 +237,7 @@ export function UnsavedWindowList({ windows, store }) {
 
 const VIEW_KEY = 'ow:view';
 
-export function WorkspaceDetail({ ws, store, compact = false }) {
+export function WorkspaceDetail({ ws, store, compact = false, header = true }) {
   const views = [
     { id: 'tabs', icon: 'tabs', label: t('tabs') },
     { id: 'resources', icon: 'bookmark', label: t('resources') },
@@ -198,18 +264,18 @@ export function WorkspaceDetail({ ws, store, compact = false }) {
     tasks: ws.tasks.filter((x) => !x.done).length,
   };
 
-  return html`<div class="detail" style="display:flex;flex-direction:column;min-height:0;flex:1">
-    <${WorkspaceHeader} ws=${ws} store=${store} compact=${compact} />
+  return html`<div class="detail" style=${swatchStyle(ws)}>
+    ${header && html`<div class="detail-head"><${WorkspaceSwatch} ws=${ws} store=${store} wide /></div>`}
     ${views.length > 0 &&
-    html`<div class="tabs" role="tablist" style=${compact ? 'padding:0 8px' : 'padding:0 24px'}>
+    html`<nav class=${`sections${compact ? ' compact' : ''}`} role="tablist" aria-label=${wsLabel(ws)}>
       ${views.map(
         (v) => html`<button role="tab" aria-selected=${v.id === active} onClick=${() => choose(v.id)}>
-          ${!compact && html`<${Icon} name=${v.icon} />`}${v.label}${counts[v.id] ? html`<span class="count">${counts[v.id]}</span>` : ''}
+          ${v.label}${counts[v.id] ? html`<span class="count">${counts[v.id]}</span>` : ''}
         </button>`,
       )}
-    </div>`}
-    <div style=${`flex:1;overflow:auto;padding:${compact ? '10px 8px' : '20px 24px'}`}>
-      <div style=${compact ? '' : 'max-width:860px'}>
+    </nav>`}
+    <div class=${`detail-body${compact ? ' compact' : ''}`}>
+      <div>
         ${active === 'tabs' && html`<${TabsView} ws=${ws} store=${store} />`}
         ${active === 'resources' && html`<${ResourcesView} ws=${ws} store=${store} />`}
         ${active === 'notes' && html`<${NotesView} ws=${ws} />`}
@@ -219,31 +285,74 @@ export function WorkspaceDetail({ ws, store, compact = false }) {
   </div>`;
 }
 
-function WorkspaceHeader({ ws, store, compact }) {
+/** The workspace as a swatch: a field of its color (click to edit) over a label with its name. */
+export function WorkspaceSwatch({ ws, store, wide = false }) {
   const [editing, setEditing] = useState(false);
   const open = store.isOpen(ws.id);
   const current = store.currentId === ws.id;
-  return html`<div class="hstack" style=${`padding:${compact ? '10px 8px' : '18px 24px 12px'};gap:10px`}>
-    <button class="icon-btn" style="width:auto;height:auto;padding:2px" title=${t('edit')} onClick=${() => setEditing(true)}><${Badge} ws=${ws} lg /></button>
-    <div style="flex:1;min-width:0">
-      <${InlineInput}
-        value=${ws.name}
-        placeholder=${t('untitled')}
-        aria-label=${t('name')}
-        style=${`font-size:${compact ? 15 : 20}px;font-weight:700;height:${compact ? 28 : 34}px`}
-        onCommit=${(name) => run(call('updateWorkspace', { id: ws.id, patch: { name } }))}
-      />
-      <div class="muted" style="font-size:12px;padding-left:5px">
-        ${current ? t('openInThisWindow') : open ? t('openInAnotherWindow') : ws.archived ? t('archivedLabel') : t('lastOpened', relativeTime(ws.lastOpenedAt))}
+  const count = realTabCount(ws);
+  const status = current ? t('openInThisWindow') : open ? t('openInAnotherWindow') : ws.archived ? t('archivedLabel') : t('lastOpened', relativeTime(ws.lastOpenedAt));
+  const openButton = !current &&
+    html`<button class="btn primary sm" onClick=${() => run(call('openWorkspace', { id: ws.id, windowId: store.windowId }))}>${open ? t('focus') : t('open')}</button>`;
+  return html`<section class=${`sw${wide ? ' wide' : ''}`} style=${swatchStyle(ws)} aria-label=${wsLabel(ws)}>
+    <button type="button" class="sw-field" title=${t('editWorkspace')} aria-label=${t('editWorkspace')} onClick=${() => setEditing(true)}>
+      <${FieldMark} ws=${ws} />
+      <span class="sw-edit" aria-hidden="true"><${Icon} name="edit" /></span>
+    </button>
+    <div class="sw-label">
+      <div class="sw-head">
+        <${InlineInput}
+          value=${ws.name}
+          placeholder=${t('untitled')}
+          aria-label=${t('name')}
+          onCommit=${(name) => run(call('updateWorkspace', { id: ws.id, patch: { name } }))}
+        />
+        ${wide && openButton}
+        <${Menu}>${() => html`<${WorkspaceMenuItems} ws=${ws} store=${store} onEdit=${() => setEditing(true)} />`}<//>
       </div>
+      <div class="sw-code mono">
+        ${wide
+          ? html`<span class="truncate">${count === 1 ? t('tabCountOne') : t('tabCount', count)} · ${status}</span>`
+          : html`<span>${count === 1 ? t('tabCountOne') : t('tabCount', count)}</span><span>${status}</span>`}
+      </div>
+      ${!wide && openButton && html`<div class="sw-actions">${openButton}</div>`}
     </div>
-    ${!current &&
-    html`<button class="btn primary sm" onClick=${() => run(call('openWorkspace', { id: ws.id, windowId: store.windowId }))}>
-      ${open ? t('focus') : t('open')}
-    </button>`}
-    <${Menu}>${() => html`<${WorkspaceMenuItems} ws=${ws} store=${store} onEdit=${() => setEditing(true)} />`}<//>
     ${editing && html`<${EditWorkspaceModal} ws=${ws} onClose=${() => setEditing(false)} />`}
-  </div>`;
+  </section>`;
+}
+
+/** Swatch for a window that isn't saved as a workspace yet: no color of its own. */
+export function UnsavedSwatch({ wide = false, onSave }) {
+  return html`<section class=${`sw neutral${wide ? ' wide' : ''}`}>
+    <div class="sw-field"><${Icon} name="window" /></div>
+    <div class="sw-label">
+      <div class="sw-head"><div class="sw-name">${t('unsavedWindow')}</div></div>
+      <div class="sw-code mono">${t('unsavedWindowHint')}</div>
+      <div class="sw-actions"><button class="btn primary sm" onClick=${onSave}><${Icon} name="save" />${t('saveAsWorkspace')}</button></div>
+    </div>
+  </section>`;
+}
+
+/** Tabs pinned in the browser: they belong to the window and stay open in every workspace. */
+export function PinnedStrip({ tabs, windowId }) {
+  if (!tabs.length) return null;
+  return html`<section class="pinned" aria-label=${t('pinnedTabs')}>
+    <div class="pinned-head"><span>${t('pinnedTabs')}</span><span class="muted">${t('pinnedHint')}</span></div>
+    <div class="pinned-list">
+      ${tabs.map(
+        (tab) => html`<button
+          key=${tab.id}
+          type="button"
+          class=${`pin${tab.active ? ' on' : ''}`}
+          title=${tab.url}
+          onClick=${() => {
+            chrome.tabs.update(tab.id, { active: true });
+            chrome.windows.update(windowId, { focused: true });
+          }}
+        ><${Favicon} url=${tab.pendingUrl || tab.url} /><span class="truncate">${tab.title || hostname(tab.url)}</span></button>`,
+      )}
+    </div>
+  </section>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,19 +381,22 @@ function TabsView({ ws, store }) {
   };
 
   if (windowId != null) {
-    const tabs = live;
-    return html`<div class="card">
+    const keepPinned = store.state.settings.keepPinned;
+    const all = live.filter((tab) => !isHomeUrl(tab.pendingUrl || tab.url));
+    const tabs = keepPinned ? all.filter((tab) => !tab.pinned) : all;
+    return html`<${PinnedStrip} tabs=${keepPinned ? all.filter((tab) => tab.pinned) : []} windowId=${windowId} />
+    <div class="card">
       <div class="card-head">
-        <span class="grow name">${t('openTabs')} <span class="muted" style="font-weight:400">${tabs.length}</span></span>
+        <span class="grow name">${t('openTabs')} <span class="muted">${tabs.length}</span></span>
         <button class="btn sm ghost" title=${t('saveAllAsResources')} onClick=${() => run(call('saveTabsAsResources', { wsId: ws.id, tabIds: tabs.map((x) => x.id) }), t('savedToResources'))}><${Icon} name="bookmark" />${t('saveAll')}</button>
         <${IconButton} icon="pause" sm title=${t('suspendOthers')} onClick=${() => run(call('suspendOtherTabs', { windowId }), t('tabsSuspended'))} />
       </div>
       <div class="card-body">
+        ${!tabs.length && html`<div class="empty" style="margin:6px">${t('noOpenTabs')}</div>`}
         ${tabs.map(
           (tab) => html`<div
             key=${tab.id}
             class=${`row${tab.active ? ' selected' : ''}${tab.discarded ? ' discarded' : ''}`}
-            style=${tab.groupId >= 0 ? `box-shadow:inset 3px 0 0 ${GROUP_COLORS[tab._groupColor] ?? 'var(--accent)'}` : ''}
             draggable="true"
             onDragStart=${(e) => setDrag(e, DND.tab, { tabId: tab.id, url: tab.url })}
             onClick=${() => {
@@ -293,6 +405,7 @@ function TabsView({ ws, store }) {
             }}
             title=${tab.url}
           >
+            ${tab.groupId >= 0 && html`<span class="grp" style=${`background:${GROUP_COLORS[tab._groupColor] ?? 'var(--accent)'}`}></span>`}
             <${Favicon} url=${tab.pendingUrl || tab.url} />
             <div class="grow">
               <div class="title">${tab.title || tab.url}</div>
@@ -314,8 +427,7 @@ function TabsView({ ws, store }) {
   const saved = ws.tabs.map((tab, index) => ({ ...tab, index })).filter((tab) => !isNewTabUrl(tab.url));
   return html`<div class="card">
     <div class="card-head">
-      <span class="grow name">${t('savedTabs')} <span class="muted" style="font-weight:400">${saved.length}</span></span>
-      <button class="btn sm primary" onClick=${() => run(call('openWorkspace', { id: ws.id, windowId: store.windowId }))}>${t('openWorkspace')}</button>
+      <span class="grow name">${t('savedTabs')} <span class="muted">${saved.length}</span></span>
     </div>
     <div class="card-body">
       ${!saved.length && html`<div class="empty" style="margin:6px">${t('noSavedTabs')}</div>`}
@@ -323,10 +435,10 @@ function TabsView({ ws, store }) {
         (tab) => html`<div
           key=${tab.index}
           class="row"
-          style=${tab.groupKey && groupColor(tab.groupKey, ws.groups) ? `box-shadow:inset 3px 0 0 ${groupColor(tab.groupKey, ws.groups)}` : ''}
           title=${tab.url}
           onClick=${() => openUrl(tab.url, store.windowId)}
         >
+          ${tab.groupKey && groupColor(tab.groupKey, ws.groups) && html`<span class="grp" style=${`background:${groupColor(tab.groupKey, ws.groups)}`}></span>`}
           <${Favicon} url=${tab.url} />
           <div class="grow"><div class="title">${tab.title || tab.url}</div></div>
           ${tab.pinned && html`<span class="meta hide-on-hover"><${Icon} name="pin" /></span>`}
@@ -470,7 +582,7 @@ function AddLinkInput({ onAdd }) {
       setValue('');
     }}
   >
-    <input class="input" style="height:28px;font-size:12.5px;background:transparent;border-style:dashed" placeholder=${t('pasteLink')} value=${value} onInput=${(e) => setValue(e.target.value)} />
+    <input class="input" style="height:30px;font-size:12.5px;background:transparent;border-style:dashed" placeholder=${t('pasteLink')} aria-label=${t('pasteLink')} value=${value} onInput=${(e) => setValue(e.target.value)} />
   </form>`;
 }
 
@@ -562,8 +674,8 @@ function TasksView({ ws }) {
 // Settings
 
 function Section({ title, children }) {
-  return html`<section class="card" style="padding:4px 20px;margin-bottom:16px">
-    <h3 style="margin:16px 0 4px;font-size:14px">${title}</h3>
+  return html`<section class="card settings-card">
+    <h2>${title}</h2>
     ${children}
   </section>`;
 }
@@ -604,6 +716,14 @@ export function SettingsView({ state }) {
           </div>
           <div class="desc" style="margin-top:8px">${t('openModeHint')}</div>
         </div>
+      </div>
+      <div class="setting">
+        <div><div class="label">${t('homeTabSetting')}</div><div class="desc">${t('homeTabDesc')}</div></div>
+        <div class="control"><${Switch} checked=${s.homeTab} label=${t('homeTabSetting')} onChange=${(v) => set({ homeTab: v })} /></div>
+      </div>
+      <div class="setting">
+        <div><div class="label">${t('keepPinnedSetting')}</div><div class="desc">${t('keepPinnedDesc')}</div></div>
+        <div class="control"><${Switch} checked=${s.keepPinned} label=${t('keepPinnedSetting')} onChange=${(v) => set({ keepPinned: v })} /></div>
       </div>
       <div class="setting">
         <div><div class="label">${t('lazyLoad')}</div><div class="desc">${t('lazyLoadDesc')}</div></div>

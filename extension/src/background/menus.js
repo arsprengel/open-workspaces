@@ -1,7 +1,7 @@
 // Right-click menus: save page/link to a workspace, move the tab to a workspace.
 
 import { getState } from './store.js';
-import { orderedWorkspaces } from '../shared/model.js';
+import { isHomeUrl, orderedWorkspaces } from '../shared/model.js';
 import { addResources, createWorkspace, moveTabs } from './actions.js';
 import { suspendOtherTabs } from './suspender.js';
 
@@ -63,7 +63,7 @@ export async function handleMenuClick(info, tab) {
       await addResources({ wsId, items: [{ url: info.linkUrl, title: info.selectionText || info.linkUrl }] });
       break;
     case 'ow-move-tab': {
-      if (!tab) break;
+      if (!tab || isHomeUrl(tab.url)) break;
       let target = wsId;
       if (target === '__new__') target = (await createWorkspace({ name: tab.title?.slice(0, 40) ?? '' })).id;
       await moveTabs({ tabIds: [tab.id], targetId: target });

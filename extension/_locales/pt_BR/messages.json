@@ -148,9 +148,6 @@
   "saveWindowAsWorkspace": {
     "message": "Salvar janela como workspace"
   },
-  "openWorkspace": {
-    "message": "Abrir workspace"
-  },
   "closeWorkspace": {
     "message": "Fechar workspace (as abas ficam salvas)"
   },
@@ -586,5 +583,44 @@
   },
   "welcomeFootnote": {
     "message": "Dica: fixe a extensão na barra de ferramentas para a troca rápida ficar a um clique."
+  },
+  "imageFailed": {
+    "message": "Não deu para ler essa imagem. Use um arquivo PNG, ICO, SVG, JPG ou WebP com menos de 5 MB."
+  },
+  "customColor": {
+    "message": "Cor personalizada"
+  },
+  "uploadImage": {
+    "message": "Enviar imagem"
+  },
+  "uploadImageHint": {
+    "message": "PNG, ICO, SVG, JPG ou WebP, até 5 MB"
+  },
+  "saveAsWorkspace": {
+    "message": "Salvar como workspace"
+  },
+  "pinnedTabs": {
+    "message": "Fixadas"
+  },
+  "pinnedHint": {
+    "message": "Ficam abertas em todos os workspaces"
+  },
+  "noOpenTabs": {
+    "message": "Nenhuma aba além das fixadas."
+  },
+  "homeTabSetting": {
+    "message": "Ícone da extensão na barra de abas"
+  },
+  "homeTabDesc": {
+    "message": "Mantém uma aba fixa pequena com o ícone do Open Workspaces à esquerda de cada janela. Clique nela para ver e trocar de workspace."
+  },
+  "keepPinnedSetting": {
+    "message": "Abas fixadas ficam em todos os workspaces"
+  },
+  "keepPinnedDesc": {
+    "message": "Abas que você fixa no navegador (como Gmail ou YouTube) continuam abertas quando você troca de workspace, em vez de serem salvas em um deles."
+  },
+  "windowTabs": {
+    "message": "Abas desta janela"
   }
 }
