@@ -321,10 +321,11 @@ async function popupUploadCheck(port, cdp, dash) {
 }
 
 /**
- * A background tab gets its timers and animation frames held back by the browser (for minutes, after a
- * while). The home tab sits in the background whenever you switch, so its icon must update without them.
+ * A background tab gets its timers held back by the browser (for minutes, after a while) and paints no
+ * frames, so animation frames and img.decode() never settle. The home tab sits in the background whenever
+ * you switch, so its icon must update without them, also for a workspace with an uploaded image.
  */
-async function backgroundIconCheck(port, dash, mode) {
+async function backgroundIconCheck(port, dash, mode, image) {
   const info = await dash.eval(`(async () => {
     const { state } = await chrome.storage.local.get('state');
     const { windowMap } = await chrome.storage.session.get('windowMap');
@@ -335,6 +336,7 @@ async function backgroundIconCheck(port, dash, mode) {
     const home = (await chrome.tabs.query({ windowId })).find((t) => t.url.startsWith(chrome.runtime.getURL('src/home/home.html')));
     const url = chrome.runtime.getURL('src/home/home.html') + '#probe-${mode}';
     await chrome.tabs.update(home.id, { url });
+    await chrome.runtime.sendMessage({ type: 'ow:call', action: 'updateWorkspace', payload: { id: target, patch: { image: ${JSON.stringify(image)} } } });
     return { windowId, homeId: home.id, url, target };
   })()`);
   await sleep(1000);
@@ -342,8 +344,8 @@ async function backgroundIconCheck(port, dash, mode) {
   const cdp = new Cdp(page.webSocketDebuggerUrl);
   await cdp.ready;
   if (mode === 'throttled') {
-    // Nothing scheduled on timers or animation frames ever runs.
-    await cdp.eval(`window.setTimeout = () => 0; window.requestAnimationFrame = () => 0;`);
+    // Nothing scheduled on timers or animation frames ever runs, and no image decode ever finishes.
+    await cdp.eval(`window.setTimeout = () => 0; window.requestAnimationFrame = () => 0; HTMLImageElement.prototype.decode = () => new Promise(() => {});`);
   } else {
     // After a while in the background the browser freezes the page: no script runs until it's shown.
     await cdp.send('Page.enable');
@@ -617,7 +619,8 @@ async function main() {
     const checks = await pages.dashboard.eval(`(${scenario.toString()})()`);
     await sleep(800);
     checks.push(...(await dropOnCardCheck(pages.dashboard)));
-    for (const mode of ['throttled', 'frozen']) checks.push(...(await backgroundIconCheck(port, pages.dashboard, mode)));
+    const fixtureImage = `data:image/png;base64,${readFileSync(resolve(import.meta.dirname, '..', 'tests', 'fixtures', 'icon.png')).toString('base64')}`;
+    for (const [mode, image] of [['throttled', fixtureImage], ['frozen', '']]) checks.push(...(await backgroundIconCheck(port, pages.dashboard, mode, image)));
     for (const file of ['icon.png', 'icon.ico']) checks.push(...(await uploadCheck(pages.dashboard, resolve(import.meta.dirname, '..', 'tests', 'fixtures', file))));
 
     for (const name of ['dashboard', 'popup', 'sidepanel']) {

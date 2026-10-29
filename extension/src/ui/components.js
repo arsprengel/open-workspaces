@@ -118,8 +118,11 @@ export async function workspaceFavicon(ws) {
   ctx.textBaseline = 'middle';
   if (ws.image) {
     const img = new Image();
-    img.src = ws.image;
-    await img.decode().catch(() => {});
+    // Not img.decode(): it waits for a painted frame, so in the background home tab it never settles.
+    await new Promise((done) => {
+      img.onload = img.onerror = done;
+      img.src = ws.image;
+    });
     const box = size * 0.74;
     const scale = Math.min(box / (img.naturalWidth || box), box / (img.naturalHeight || box));
     const w = (img.naturalWidth || box) * scale;
@@ -129,9 +132,11 @@ export async function workspaceFavicon(ws) {
     ctx.font = `${size * 0.66}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
     ctx.fillText(ws.icon, size / 2, size / 2 + size * 0.04);
   } else {
-    await document.fonts?.ready;
+    const font = `800 ${size * 0.58}px Archivo, system-ui, sans-serif`;
+    // A background tab may not have laid out any text yet, so ask for the font instead of waiting for it.
+    await document.fonts?.load(font).catch(() => {});
     ctx.fillStyle = readableOn(ws.color);
-    ctx.font = `800 ${size * 0.58}px Archivo, system-ui, sans-serif`;
+    ctx.font = font;
     ctx.fillText(initialOf(ws), size / 2, size / 2 + size * 0.03);
   }
   return canvas.toDataURL('image/png');

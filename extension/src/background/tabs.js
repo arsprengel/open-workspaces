@@ -195,7 +195,8 @@ export async function ensureHomeTab(windowId, { refresh = false } = {}) {
     if (!home.pinned) await chrome.tabs.update(home.id, { pinned: true });
     if (home.index !== 0) await chrome.tabs.move(home.id, { index: 0 });
     // Its icon shows the window's workspace; a discarded or frozen tab would keep the old one until clicked.
-    if (home.discarded || (refresh && !home.active)) await chrome.tabs.reload(home.id);
+    // Browsers before Chrome 132 don't say whether a tab is frozen, so there any background home tab reloads.
+    if (home.discarded || (refresh && !home.active && home.frozen !== false)) await chrome.tabs.reload(home.id);
   } catch (err) {
     console.warn('[open-workspaces] home tab', err);
   }
