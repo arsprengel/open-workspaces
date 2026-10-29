@@ -1,0 +1,201 @@
+// Toolbar popup: keyboard-first quick switcher, search, "move tab to" and "new workspace".
+
+import { html, render, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
+import { POPUP_INTENT_KEY } from '../shared/constants.js';
+import { hostname, isNewTabUrl, orderedWorkspaces, realTabCount, search } from '../shared/model.js';
+import { call, openUrl, t, useStore, useTheme, wsLabel } from '../ui/api.js';
+import { Badge, Favicon, Icon, IconButton, ToastHost, run } from '../ui/components.js';
+import { NewWorkspaceModal } from '../ui/views.js';
+
+async function takeIntent() {
+  const { [POPUP_INTENT_KEY]: intent } = await chrome.storage.session.get(POPUP_INTENT_KEY);
+  if (intent) await chrome.storage.session.remove(POPUP_INTENT_KEY);
+  return intent ?? 'switch';
+}
+
+function App() {
+  const store = useStore();
+  useTheme(store?.state);
+  const [intent, setIntent] = useState(null);
+  const [query, setQuery] = useState('');
+  const [cursor, setCursor] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const [activeTab, setActiveTab] = useState(null);
+  const inputRef = useRef(null);
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    takeIntent().then((i) => {
+      setIntent(i);
+      if (i === 'new') setCreating(true);
+    });
+    chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => setActiveTab(tab ?? null));
+  }, []);
+
+  const moving = intent === 'move';
+
+  const items = useMemo(() => {
+    if (!store) return [];
+    if (query.trim()) {
+      return search(store.state, query).map((r) => ({ ...r, ws: store.state.workspaces[r.wsId] }));
+    }
+    return orderedWorkspaces(store.state)
+      .filter((ws) => !(moving && ws.id === store.currentId))
+      .map((ws) => ({ type: 'workspace', wsId: ws.id, ws }));
+  }, [store, query, moving]);
+
+  useEffect(() => setCursor(0), [query]);
+  useEffect(() => {
+    listRef.current?.querySelector('.row.kb')?.scrollIntoView({ block: 'nearest' });
+  }, [cursor]);
+
+  if (!store || intent === null) return null;
+
+  const activate = async (item, { newWindow = false } = {}) => {
+    if (moving) {
+      if (activeTab) await run(call('moveTabs', { tabIds: [activeTab.id], targetId: item.wsId }));
+      return window.close();
+    }
+    if (item.type === 'resource') {
+      await openUrl(item.url, store.windowId);
+      return window.close();
+    }
+    await run(call('openWorkspace', { id: item.wsId, windowId: store.windowId, newWindow }));
+    return window.close();
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setCursor((c) => Math.min(items.length - 1, c + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setCursor((c) => Math.max(0, c - 1));
+    } else if (e.key === 'Enter' && items[cursor]) {
+      e.preventDefault();
+      activate(items[cursor], { newWindow: e.shiftKey });
+    }
+  };
+
+  const current = store.currentId ? store.state.workspaces[store.currentId] : null;
+  const canSaveTab = activeTab && !isNewTabUrl(activeTab.url);
+
+  return html`<div class="popup">
+    <header class="hstack" style="padding:10px 10px 6px">
+      <div class="search" style="flex:1">
+        <${Icon} name="search" />
+        <input
+          ref=${inputRef}
+          class="input"
+          autofocus
+          placeholder=${moving ? t('moveTabSearch') : t('searchPlaceholder')}
+          value=${query}
+          onInput=${(e) => setQuery(e.target.value)}
+          onKeyDown=${onKeyDown}
+          aria-label=${t('search')}
+        />
+      </div>
+      <${IconButton} icon="panel" title=${t('openSidePanel')} onClick=${async () => {
+        await chrome.sidePanel.open({ windowId: store.windowId });
+        window.close();
+      }} />
+      <${IconButton} icon="grid" title=${t('openDashboard')} onClick=${() => {
+        chrome.runtime.openOptionsPage();
+        window.close();
+      }} />
+    </header>
+
+    ${moving &&
+    html`<div class="hstack" style="padding:2px 14px 6px;font-size:12px">
+      <span class="muted">${t('movingTab')}</span>
+      ${activeTab && html`<${Favicon} url=${activeTab.url} /><span class="truncate" style="font-weight:600">${activeTab.title}</span>`}
+    </div>`}
+
+    ${!moving && !query &&
+    html`<div style="padding:0 10px">
+      ${current
+        ? html`<div class="current hstack">
+            <${Badge} ws=${current} />
+            <div style="flex:1;min-width:0">
+              <div class="truncate" style="font-weight:600">${wsLabel(current)}</div>
+              <div class="muted" style="font-size:11.5px">${t('currentWorkspace')}</div>
+            </div>
+            ${canSaveTab && html`<${IconButton} icon="bookmark" title=${t('saveTabAsResource')} onClick=${() => run(call('addResources', { wsId: current.id, items: [{ url: activeTab.url, title: activeTab.title }] }), t('savedToResources'))} />`}
+            <${IconButton} icon="power" title=${t('closeWorkspace')} onClick=${async () => {
+              await run(call('closeWorkspace', { id: current.id }));
+              window.close();
+            }} />
+          </div>`
+        : html`<div class="current hstack">
+            <span class="badge" style="background:var(--surface-2);color:var(--muted)"><${Icon} name="window" /></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600">${t('unsavedWindow')}</div>
+              <div class="muted" style="font-size:11.5px">${t('unsavedWindowHint')}</div>
+            </div>
+            <button class="btn sm primary" onClick=${() => setCreating('window')}><${Icon} name="save" />${t('save')}</button>
+          </div>`}
+    </div>`}
+
+    <div class="list" ref=${listRef} role="listbox">
+      ${!query && !moving && items.length > 0 && html`<div class="section-label">${t('workspaces')}</div>`}
+      ${items.map((item, i) => {
+        const kb = i === cursor;
+        if (item.type === 'workspace') {
+          const ws = item.ws;
+          const open = store.isOpen(ws.id);
+          return html`<div
+            key=${`w${ws.id}`}
+            class=${`row${kb ? ' kb' : ''}${ws.id === store.currentId ? ' selected' : ''}`}
+            role="option"
+            aria-selected=${kb}
+            onMouseMove=${() => cursor !== i && setCursor(i)}
+            onClick=${(e) => activate(item, { newWindow: e.shiftKey })}
+          >
+            <${Badge} ws=${ws} />
+            <div class="grow"><div class="title">${wsLabel(ws)}${ws.archived ? html` <span class="muted">· ${t('archivedLabel')}</span>` : ''}</div></div>
+            ${open && html`<span class="dot" title=${t('open')}></span>`}
+            <span class="meta">${realTabCount(ws) === 1 ? t('tabCountOne') : t('tabCount', realTabCount(ws))}</span>
+          </div>`;
+        }
+        return html`<div
+          key=${`${item.type}${i}`}
+          class=${`row${kb ? ' kb' : ''}`}
+          role="option"
+          aria-selected=${kb}
+          onMouseMove=${() => cursor !== i && setCursor(i)}
+          onClick=${() => activate(item)}
+        >
+          <${Favicon} url=${item.url} />
+          <div class="grow">
+            <div class="title">${item.title}</div>
+            <div class="sub">${item.type === 'resource' ? t('resourceIn', wsLabel(item.ws)) : t('tabIn', wsLabel(item.ws))} · ${hostname(item.url)}</div>
+          </div>
+        </div>`;
+      })}
+      ${!items.length &&
+      html`<div class="empty" style="margin:8px 4px">
+        ${query ? t('noResults') : t('noWorkspacesYet')}
+      </div>`}
+    </div>
+
+    <footer class="hstack">
+      <button class="btn sm ghost" onClick=${() => setCreating(true)}><${Icon} name="plus" />${t('newWorkspace')}</button>
+      <span class="spacer"></span>
+      <span class="muted" style="font-size:11px"><span class="kbd">↑↓</span> <span class="kbd">↵</span> ${t('open')} · <span class="kbd">⇧↵</span> ${t('newWindow')}</span>
+    </footer>
+
+    ${creating &&
+    html`<${NewWorkspaceModal}
+      store=${store}
+      fromWindowId=${creating === 'window' ? store.windowId : null}
+      onClose=${() => setCreating(false)}
+      onCreated=${async (id) => {
+        if (moving && activeTab) await run(call('moveTabs', { tabIds: [activeTab.id], targetId: id }));
+        window.close();
+      }}
+    />`}
+    <${ToastHost} />
+  </div>`;
+}
+
+render(html`<${App} />`, document.getElementById('app'));

@@ -1,0 +1,590 @@
+{
+  "appName": {
+    "message": "Open Workspaces"
+  },
+  "appDescription": {
+    "message": "Workspaces de abas grátis e open-source. Spaces ilimitados, recursos, notas, tarefas e suspensão de abas."
+  },
+  "cmdSwitch": {
+    "message": "Trocar de workspace / buscar"
+  },
+  "cmdMoveTab": {
+    "message": "Salvar ou mover a aba atual para um workspace"
+  },
+  "cmdNewWorkspace": {
+    "message": "Novo workspace"
+  },
+  "cmdSidePanel": {
+    "message": "Abrir o painel lateral"
+  },
+  "cmdNext": {
+    "message": "Próximo workspace"
+  },
+  "cmdPrevious": {
+    "message": "Workspace anterior"
+  },
+  "cmdClose": {
+    "message": "Fechar o workspace atual"
+  },
+  "cmdDashboard": {
+    "message": "Abrir o painel completo"
+  },
+  "menuOpenDashboard": {
+    "message": "Abrir painel completo"
+  },
+  "menuSuspendOthers": {
+    "message": "Suspender as outras abas desta janela"
+  },
+  "menuSavePage": {
+    "message": "Salvar página no workspace"
+  },
+  "menuSaveLink": {
+    "message": "Salvar link no workspace"
+  },
+  "menuMoveTab": {
+    "message": "Mover aba para o workspace"
+  },
+  "menuNewWorkspace": {
+    "message": "Novo workspace…"
+  },
+  "untitled": {
+    "message": "Sem nome"
+  },
+  "never": {
+    "message": "nunca"
+  },
+  "justNow": {
+    "message": "agora mesmo"
+  },
+  "more": {
+    "message": "Mais"
+  },
+  "name": {
+    "message": "Nome"
+  },
+  "color": {
+    "message": "Cor"
+  },
+  "icon": {
+    "message": "Ícone"
+  },
+  "noIcon": {
+    "message": "Sem ícone (usar inicial)"
+  },
+  "workspaceNamePlaceholder": {
+    "message": "ex.: Trabalho, Projeto pessoal, Viagem"
+  },
+  "cancel": {
+    "message": "Cancelar"
+  },
+  "save": {
+    "message": "Salvar"
+  },
+  "create": {
+    "message": "Criar"
+  },
+  "edit": {
+    "message": "Editar"
+  },
+  "delete": {
+    "message": "Excluir"
+  },
+  "remove": {
+    "message": "Remover"
+  },
+  "duplicate": {
+    "message": "Duplicar"
+  },
+  "duplicated": {
+    "message": "Workspace duplicado"
+  },
+  "deleted": {
+    "message": "Workspace excluído"
+  },
+  "archive": {
+    "message": "Arquivo"
+  },
+  "archived": {
+    "message": "Workspace arquivado"
+  },
+  "archivedLabel": {
+    "message": "Arquivado"
+  },
+  "unarchive": {
+    "message": "Restaurar do arquivo"
+  },
+  "open": {
+    "message": "Abrir"
+  },
+  "focus": {
+    "message": "Ir para a janela"
+  },
+  "clear": {
+    "message": "Limpar"
+  },
+  "title": {
+    "message": "Título"
+  },
+  "search": {
+    "message": "Buscar"
+  },
+  "errorGeneric": {
+    "message": "Algo deu errado: $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "workspaces": {
+    "message": "Workspaces"
+  },
+  "newWorkspace": {
+    "message": "Novo workspace"
+  },
+  "editWorkspace": {
+    "message": "Editar workspace"
+  },
+  "saveWindowAsWorkspace": {
+    "message": "Salvar janela como workspace"
+  },
+  "openWorkspace": {
+    "message": "Abrir workspace"
+  },
+  "closeWorkspace": {
+    "message": "Fechar workspace (as abas ficam salvas)"
+  },
+  "openInNewWindow": {
+    "message": "Abrir em nova janela"
+  },
+  "newWindow": {
+    "message": "nova janela"
+  },
+  "confirmDeleteWorkspace": {
+    "message": "Excluir \"$p1$\"? As abas salvas, recursos, notas e tarefas serão perdidos.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "currentWindow": {
+    "message": "Aberto nesta janela"
+  },
+  "openInThisWindow": {
+    "message": "Aberto nesta janela"
+  },
+  "openInAnotherWindow": {
+    "message": "Aberto em outra janela"
+  },
+  "lastOpened": {
+    "message": "Aberto pela última vez $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "currentWorkspace": {
+    "message": "Workspace atual"
+  },
+  "movedTo": {
+    "message": "Movido para $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "moveToWorkspace": {
+    "message": "Mover para workspace"
+  },
+  "filterWorkspaces": {
+    "message": "Filtrar workspaces"
+  },
+  "noResults": {
+    "message": "Nenhum resultado"
+  },
+  "noWorkspacesYet": {
+    "message": "Nenhum workspace ainda. Crie um ou salve a janela atual."
+  },
+  "tabCount": {
+    "message": "$p1$ abas",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tabCountOne": {
+    "message": "1 aba"
+  },
+  "unsavedWindow": {
+    "message": "Janela não salva"
+  },
+  "unsavedWindows": {
+    "message": "Janelas não salvas"
+  },
+  "unsavedWindowHint": {
+    "message": "Salve para guardar estas abas"
+  },
+  "unsavedWindowLong": {
+    "message": "Esta janela ainda não é um workspace. Salve para guardar as abas ou abra um dos seus workspaces."
+  },
+  "thisWindow": {
+    "message": "Esta janela"
+  },
+  "emptyWindow": {
+    "message": "Janela vazia"
+  },
+  "focusWindow": {
+    "message": "Ir para esta janela"
+  },
+  "tabAndMore": {
+    "message": "$p1$ + $p2$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "saveThisWindow": {
+    "message": "Salvar esta janela como workspace"
+  },
+  "tabs": {
+    "message": "Abas"
+  },
+  "resources": {
+    "message": "Recursos"
+  },
+  "notes": {
+    "message": "Notas"
+  },
+  "tasks": {
+    "message": "Tarefas"
+  },
+  "openTabs": {
+    "message": "Abas abertas"
+  },
+  "savedTabs": {
+    "message": "Abas salvas"
+  },
+  "noSavedTabs": {
+    "message": "Nenhuma aba salva. Ao abrir este workspace ele começa com uma aba nova."
+  },
+  "saveAll": {
+    "message": "Salvar todas"
+  },
+  "saveAllAsResources": {
+    "message": "Salvar todas as abas como recursos"
+  },
+  "saveAsResource": {
+    "message": "Salvar como recurso"
+  },
+  "saveTabAsResource": {
+    "message": "Salvar esta aba como recurso"
+  },
+  "savedToResources": {
+    "message": "Salvo nos recursos"
+  },
+  "suspend": {
+    "message": "Suspender aba"
+  },
+  "suspended": {
+    "message": "suspensa"
+  },
+  "suspendOthers": {
+    "message": "Suspender as outras abas"
+  },
+  "tabsSuspended": {
+    "message": "Abas suspensas"
+  },
+  "closeTab": {
+    "message": "Fechar aba"
+  },
+  "pinned": {
+    "message": "Fixada"
+  },
+  "addCurrentTab": {
+    "message": "Adicionar aba atual"
+  },
+  "addAllOpenTabs": {
+    "message": "Adicionar todas as abas abertas"
+  },
+  "openAll": {
+    "message": "Abrir todos"
+  },
+  "deleteSection": {
+    "message": "Excluir seção"
+  },
+  "confirmDeleteSection": {
+    "message": "Excluir esta seção e seus links?"
+  },
+  "addSection": {
+    "message": "Adicionar seção"
+  },
+  "sectionName": {
+    "message": "Nome da seção"
+  },
+  "expand": {
+    "message": "Expandir"
+  },
+  "collapse": {
+    "message": "Recolher"
+  },
+  "pasteLink": {
+    "message": "Cole um link e aperte Enter"
+  },
+  "editLink": {
+    "message": "Editar link"
+  },
+  "nothingToSave": {
+    "message": "Nada para salvar nesta aba"
+  },
+  "resourceIn": {
+    "message": "Recurso em $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tabIn": {
+    "message": "Aba em $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "notesPlaceholder": {
+    "message": "Escreva qualquer coisa sobre este workspace… (salvo automaticamente)"
+  },
+  "addTaskPlaceholder": {
+    "message": "Adicione uma tarefa e aperte Enter"
+  },
+  "noTasks": {
+    "message": "Nenhuma tarefa ainda."
+  },
+  "completed": {
+    "message": "Concluídas"
+  },
+  "searchPlaceholder": {
+    "message": "Buscar workspaces, abas e recursos"
+  },
+  "moveTabSearch": {
+    "message": "Mover esta aba para…"
+  },
+  "movingTab": {
+    "message": "Movendo:"
+  },
+  "openSidePanel": {
+    "message": "Abrir painel lateral"
+  },
+  "openDashboard": {
+    "message": "Abrir painel completo"
+  },
+  "settings": {
+    "message": "Configurações"
+  },
+  "contribute": {
+    "message": "Contribuir no GitHub"
+  },
+  "settingsWorkspaces": {
+    "message": "Workspaces"
+  },
+  "openingWorkspaces": {
+    "message": "Abrindo workspaces"
+  },
+  "openModeCurrent": {
+    "message": "Abrir na janela atual (troca as abas)"
+  },
+  "openModeNewWindow": {
+    "message": "Sempre abrir em uma nova janela"
+  },
+  "openModeHint": {
+    "message": "Janelas com abas não salvas nunca são substituídas: o workspace abre em uma nova janela."
+  },
+  "lazyLoad": {
+    "message": "Carregar abas restauradas sob demanda"
+  },
+  "lazyLoadDesc": {
+    "message": "Só a aba ativa carrega ao abrir um workspace. As outras carregam quando você clicar nelas."
+  },
+  "visibleSections": {
+    "message": "Seções exibidas em cada workspace"
+  },
+  "confirmDeleteSetting": {
+    "message": "Perguntar antes de excluir um workspace"
+  },
+  "settingsSuspension": {
+    "message": "Suspensão de abas"
+  },
+  "suspensionDesc": {
+    "message": "Abas suspensas continuam na barra mas liberam a memória até você clicar nelas."
+  },
+  "suspendManual": {
+    "message": "Suspender abas manualmente"
+  },
+  "suspendAuto": {
+    "message": "Suspender abas inativas automaticamente"
+  },
+  "keepMaxBefore": {
+    "message": "Manter no máximo"
+  },
+  "keepMaxAfter": {
+    "message": "abas recentes na memória e suspender o resto"
+  },
+  "suspendAfter": {
+    "message": "Suspender abas sem uso há"
+  },
+  "minutes": {
+    "message": "$p1$ minutos",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "hours": {
+    "message": "$p1$ h",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "exclusions": {
+    "message": "Exceções"
+  },
+  "neverPinned": {
+    "message": "Nunca suspender abas fixadas"
+  },
+  "neverAudible": {
+    "message": "Nunca suspender abas tocando áudio ou vídeo"
+  },
+  "exclusionsPlaceholder": {
+    "message": "Nunca suspender estes (um por linha):\nexemplo.com\nhttps://exemplo.com/pagina"
+  },
+  "settingsInterface": {
+    "message": "Interface"
+  },
+  "toolbarButton": {
+    "message": "O botão da barra abre"
+  },
+  "toolbarButtonDesc": {
+    "message": "O outro continua disponível pelo menu ou por atalho."
+  },
+  "quickSwitcher": {
+    "message": "Troca rápida"
+  },
+  "sidePanel": {
+    "message": "Painel lateral"
+  },
+  "theme": {
+    "message": "Tema"
+  },
+  "themeSystem": {
+    "message": "Sistema"
+  },
+  "themeLight": {
+    "message": "Claro"
+  },
+  "themeDark": {
+    "message": "Escuro"
+  },
+  "settingsShortcuts": {
+    "message": "Atalhos de teclado"
+  },
+  "notSet": {
+    "message": "Não definido"
+  },
+  "changeShortcuts": {
+    "message": "Alterar atalhos"
+  },
+  "settingsBackup": {
+    "message": "Backup"
+  },
+  "exportData": {
+    "message": "Exportar dados"
+  },
+  "exportDesc": {
+    "message": "Baixe todos os workspaces, recursos, notas e configurações em um arquivo JSON."
+  },
+  "export": {
+    "message": "Exportar"
+  },
+  "importData": {
+    "message": "Importar dados"
+  },
+  "importMerge": {
+    "message": "Adicionar aos meus workspaces atuais"
+  },
+  "importReplace": {
+    "message": "Substituir tudo"
+  },
+  "import": {
+    "message": "Importar"
+  },
+  "importDone": {
+    "message": "Importação concluída: $p1$ workspaces",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "importFailed": {
+    "message": "Falha ao importar: $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "confirmReplaceImport": {
+    "message": "Substituir TODOS os seus workspaces atuais pelo conteúdo do arquivo?"
+  },
+  "aboutLine": {
+    "message": "Grátis e open-source, para sempre. Licença MIT."
+  },
+  "sourceCode": {
+    "message": "Código-fonte"
+  },
+  "welcomeTitle": {
+    "message": "Bem-vindo ao Open Workspaces"
+  },
+  "welcomeSubtitle": {
+    "message": "Organize suas abas em workspaces. Ilimitado, grátis e open-source. Sem conta, sem rastreamento, tudo fica no seu navegador."
+  },
+  "welcomeStep1Title": {
+    "message": "Salve uma janela como workspace"
+  },
+  "welcomeStep1Text": {
+    "message": "Cada workspace é um conjunto de abas. Trocar de workspace troca as abas da janela, e tudo é salvo automaticamente."
+  },
+  "welcomeStep2Title": {
+    "message": "Troque com Alt+A"
+  },
+  "welcomeStep2Text": {
+    "message": "Abra a troca rápida, digite para buscar em workspaces, abas e recursos e aperte Enter. Alt+T move a aba atual."
+  },
+  "welcomeStep3Title": {
+    "message": "Guarde recursos, notas e tarefas"
+  },
+  "welcomeStep3Text": {
+    "message": "Salve links importantes em seções, escreva notas e mantenha uma lista de tarefas em cada workspace. Alt+S abre o painel lateral."
+  },
+  "welcomeStep4Title": {
+    "message": "Economize memória"
+  },
+  "welcomeStep4Text": {
+    "message": "Abas restauradas carregam sob demanda e abas inativas podem ser suspensas automaticamente. Configure em Configurações."
+  },
+  "welcomeFootnote": {
+    "message": "Dica: fixe a extensão na barra de ferramentas para a troca rápida ficar a um clique."
+  }
+}

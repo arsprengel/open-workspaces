@@ -1,0 +1,63 @@
+// Shared constants used by the service worker and every UI surface.
+
+export const APP_ID = 'open-workspaces';
+export const SCHEMA_VERSION = 1;
+
+/** chrome.storage.local key holding the whole persisted state. */
+export const STATE_KEY = 'state';
+/** chrome.storage.session key mapping windowId -> workspaceId (cleared on browser restart). */
+export const WINDOW_MAP_KEY = 'windowMap';
+/** chrome.storage.session key used to tell the popup which mode to open in (search, move tab, new...). */
+export const POPUP_INTENT_KEY = 'popupIntent';
+
+export const COLORS = [
+  '#6366f1', // indigo
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#ef4444', // red
+  '#f97316', // orange
+  '#eab308', // yellow
+  '#22c55e', // green
+  '#14b8a6', // teal
+  '#0ea5e9', // sky
+  '#3b82f6', // blue
+  '#64748b', // slate
+];
+
+export const EMOJIS = [
+  '💼', '🏠', '🚀', '💡', '📚', '🎯', '🛠️', '💻', '📈', '💰', '🎨', '🎮',
+  '🎵', '🎬', '✈️', '🛒', '🍳', '🏋️', '❤️', '⭐', '🔥', '🌱', '🧪', '📝',
+  '📅', '📦', '🔒', '🌎', '🤝', '🧠', '⚙️', '🐛', '📣', '🎓', '🏢', '☕',
+];
+
+export const DEFAULT_SETTINGS = Object.freeze({
+  /** 'current' replaces the tabs of the current window, 'newWindow' always opens a new window. */
+  openMode: 'current',
+  /** Restored tabs (other than the active one) are discarded so they don't load until clicked. */
+  lazyLoadTabs: true,
+  /** What clicking the toolbar icon does: 'popup' or 'sidepanel'. */
+  actionClick: 'popup',
+  /** 'system' | 'light' | 'dark' */
+  theme: 'system',
+  confirmDelete: true,
+  /** Which sections a workspace shows. */
+  views: { tabs: true, resources: true, notes: true, tasks: true },
+  suspend: {
+    /** 'manual' | 'auto' */
+    mode: 'manual',
+    /** 'maxTabs' keeps the N most recent tabs loaded, 'idle' suspends tabs unused for N minutes. */
+    strategy: 'maxTabs',
+    maxTabs: 25,
+    idleMinutes: 30,
+    neverPinned: true,
+    neverAudible: true,
+    /** Newline separated domains (example.com) or URL prefixes (https://example.com/page). */
+    exclusions: '',
+  },
+});
+
+/** Message types understood by the service worker (see background/actions.js). */
+export const MSG = 'ow:call';
+
+/** Update this when the repository moves. */
+export const REPO_URL = 'https://github.com/open-workspaces/open-workspaces';

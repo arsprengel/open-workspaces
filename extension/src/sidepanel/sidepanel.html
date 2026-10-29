@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Workspaces</title>
+    <link rel="stylesheet" href="../ui/theme.css" />
+    <style>
+      html, body, #app { height: 100%; }
+      .sp { display: flex; height: 100%; }
+      .sp main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        width: 48px;
+        flex: none;
+        padding: 10px 0;
+        overflow-y: auto;
+        border-right: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .rail-item {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        flex: none;
+        padding: 0;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .rail-item .badge { width: 30px; height: 30px; border-radius: 9px; font-size: 13px; }
+      .rail-item .badge.emoji { font-size: 16px; }
+      .rail-item:hover { background: var(--hover); }
+      .rail-item.current { background: var(--accent-soft); }
+      .rail-item.current::before {
+        content: '';
+        position: absolute;
+        left: -6px;
+        top: 8px;
+        bottom: 8px;
+        width: 3px;
+        border-radius: 0 3px 3px 0;
+        background: var(--accent);
+      }
+      .rail-item.open:not(.current)::after {
+        content: '';
+        position: absolute;
+        right: 2px;
+        bottom: 2px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--success);
+        border: 2px solid var(--surface);
+      }
+      .rail-item.drop { box-shadow: 0 0 0 2px var(--accent); }
+      .rail-item.add { border: 1px dashed var(--border); width: 30px; height: 30px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

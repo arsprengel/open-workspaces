@@ -1,0 +1,590 @@
+{
+  "appName": {
+    "message": "Open Workspaces"
+  },
+  "appDescription": {
+    "message": "Free and open-source workspaces for your tabs. Unlimited spaces, resources, notes, tasks and tab suspension."
+  },
+  "cmdSwitch": {
+    "message": "Switch workspace / search"
+  },
+  "cmdMoveTab": {
+    "message": "Save or move the current tab to a workspace"
+  },
+  "cmdNewWorkspace": {
+    "message": "New workspace"
+  },
+  "cmdSidePanel": {
+    "message": "Open the side panel"
+  },
+  "cmdNext": {
+    "message": "Next workspace"
+  },
+  "cmdPrevious": {
+    "message": "Previous workspace"
+  },
+  "cmdClose": {
+    "message": "Close current workspace"
+  },
+  "cmdDashboard": {
+    "message": "Open dashboard"
+  },
+  "menuOpenDashboard": {
+    "message": "Open dashboard"
+  },
+  "menuSuspendOthers": {
+    "message": "Suspend other tabs in this window"
+  },
+  "menuSavePage": {
+    "message": "Save page to workspace"
+  },
+  "menuSaveLink": {
+    "message": "Save link to workspace"
+  },
+  "menuMoveTab": {
+    "message": "Move tab to workspace"
+  },
+  "menuNewWorkspace": {
+    "message": "New workspace…"
+  },
+  "untitled": {
+    "message": "Untitled"
+  },
+  "never": {
+    "message": "never"
+  },
+  "justNow": {
+    "message": "just now"
+  },
+  "more": {
+    "message": "More"
+  },
+  "name": {
+    "message": "Name"
+  },
+  "color": {
+    "message": "Color"
+  },
+  "icon": {
+    "message": "Icon"
+  },
+  "noIcon": {
+    "message": "No icon (use initial)"
+  },
+  "workspaceNamePlaceholder": {
+    "message": "e.g. Work, Side project, Travel"
+  },
+  "cancel": {
+    "message": "Cancel"
+  },
+  "save": {
+    "message": "Save"
+  },
+  "create": {
+    "message": "Create"
+  },
+  "edit": {
+    "message": "Edit"
+  },
+  "delete": {
+    "message": "Delete"
+  },
+  "remove": {
+    "message": "Remove"
+  },
+  "duplicate": {
+    "message": "Duplicate"
+  },
+  "duplicated": {
+    "message": "Workspace duplicated"
+  },
+  "deleted": {
+    "message": "Workspace deleted"
+  },
+  "archive": {
+    "message": "Archive"
+  },
+  "archived": {
+    "message": "Workspace archived"
+  },
+  "archivedLabel": {
+    "message": "Archived"
+  },
+  "unarchive": {
+    "message": "Restore from archive"
+  },
+  "open": {
+    "message": "Open"
+  },
+  "focus": {
+    "message": "Go to window"
+  },
+  "clear": {
+    "message": "Clear"
+  },
+  "title": {
+    "message": "Title"
+  },
+  "search": {
+    "message": "Search"
+  },
+  "errorGeneric": {
+    "message": "Something went wrong: $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "workspaces": {
+    "message": "Workspaces"
+  },
+  "newWorkspace": {
+    "message": "New workspace"
+  },
+  "editWorkspace": {
+    "message": "Edit workspace"
+  },
+  "saveWindowAsWorkspace": {
+    "message": "Save window as workspace"
+  },
+  "openWorkspace": {
+    "message": "Open workspace"
+  },
+  "closeWorkspace": {
+    "message": "Close workspace (tabs are saved)"
+  },
+  "openInNewWindow": {
+    "message": "Open in new window"
+  },
+  "newWindow": {
+    "message": "new window"
+  },
+  "confirmDeleteWorkspace": {
+    "message": "Delete \"$p1$\"? Its saved tabs, resources, notes and tasks will be lost.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "currentWindow": {
+    "message": "Open in this window"
+  },
+  "openInThisWindow": {
+    "message": "Open in this window"
+  },
+  "openInAnotherWindow": {
+    "message": "Open in another window"
+  },
+  "lastOpened": {
+    "message": "Last opened $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "currentWorkspace": {
+    "message": "Current workspace"
+  },
+  "movedTo": {
+    "message": "Moved to $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "moveToWorkspace": {
+    "message": "Move to workspace"
+  },
+  "filterWorkspaces": {
+    "message": "Filter workspaces"
+  },
+  "noResults": {
+    "message": "No results"
+  },
+  "noWorkspacesYet": {
+    "message": "No workspaces yet. Create one or save the current window."
+  },
+  "tabCount": {
+    "message": "$p1$ tabs",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tabCountOne": {
+    "message": "1 tab"
+  },
+  "unsavedWindow": {
+    "message": "Unsaved window"
+  },
+  "unsavedWindows": {
+    "message": "Unsaved windows"
+  },
+  "unsavedWindowHint": {
+    "message": "Save it to keep these tabs"
+  },
+  "unsavedWindowLong": {
+    "message": "This window isn't a workspace yet. Save it to keep its tabs, or open one of your workspaces."
+  },
+  "thisWindow": {
+    "message": "This window"
+  },
+  "emptyWindow": {
+    "message": "Empty window"
+  },
+  "focusWindow": {
+    "message": "Go to this window"
+  },
+  "tabAndMore": {
+    "message": "$p1$ + $p2$ more",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "saveThisWindow": {
+    "message": "Save this window as a workspace"
+  },
+  "tabs": {
+    "message": "Tabs"
+  },
+  "resources": {
+    "message": "Resources"
+  },
+  "notes": {
+    "message": "Notes"
+  },
+  "tasks": {
+    "message": "Tasks"
+  },
+  "openTabs": {
+    "message": "Open tabs"
+  },
+  "savedTabs": {
+    "message": "Saved tabs"
+  },
+  "noSavedTabs": {
+    "message": "No saved tabs. Opening this workspace starts with a new tab."
+  },
+  "saveAll": {
+    "message": "Save all"
+  },
+  "saveAllAsResources": {
+    "message": "Save all tabs as resources"
+  },
+  "saveAsResource": {
+    "message": "Save as resource"
+  },
+  "saveTabAsResource": {
+    "message": "Save this tab as a resource"
+  },
+  "savedToResources": {
+    "message": "Saved to resources"
+  },
+  "suspend": {
+    "message": "Suspend tab"
+  },
+  "suspended": {
+    "message": "suspended"
+  },
+  "suspendOthers": {
+    "message": "Suspend other tabs"
+  },
+  "tabsSuspended": {
+    "message": "Tabs suspended"
+  },
+  "closeTab": {
+    "message": "Close tab"
+  },
+  "pinned": {
+    "message": "Pinned"
+  },
+  "addCurrentTab": {
+    "message": "Add current tab"
+  },
+  "addAllOpenTabs": {
+    "message": "Add all open tabs"
+  },
+  "openAll": {
+    "message": "Open all"
+  },
+  "deleteSection": {
+    "message": "Delete section"
+  },
+  "confirmDeleteSection": {
+    "message": "Delete this section and its links?"
+  },
+  "addSection": {
+    "message": "Add section"
+  },
+  "sectionName": {
+    "message": "Section name"
+  },
+  "expand": {
+    "message": "Expand"
+  },
+  "collapse": {
+    "message": "Collapse"
+  },
+  "pasteLink": {
+    "message": "Paste a link and press Enter"
+  },
+  "editLink": {
+    "message": "Edit link"
+  },
+  "nothingToSave": {
+    "message": "Nothing to save on this tab"
+  },
+  "resourceIn": {
+    "message": "Resource in $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tabIn": {
+    "message": "Tab in $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "notesPlaceholder": {
+    "message": "Write anything about this workspace… (saved automatically)"
+  },
+  "addTaskPlaceholder": {
+    "message": "Add a task and press Enter"
+  },
+  "noTasks": {
+    "message": "No tasks yet."
+  },
+  "completed": {
+    "message": "Completed"
+  },
+  "searchPlaceholder": {
+    "message": "Search workspaces, tabs and resources"
+  },
+  "moveTabSearch": {
+    "message": "Move this tab to…"
+  },
+  "movingTab": {
+    "message": "Moving:"
+  },
+  "openSidePanel": {
+    "message": "Open side panel"
+  },
+  "openDashboard": {
+    "message": "Open dashboard"
+  },
+  "settings": {
+    "message": "Settings"
+  },
+  "contribute": {
+    "message": "Contribute on GitHub"
+  },
+  "settingsWorkspaces": {
+    "message": "Workspaces"
+  },
+  "openingWorkspaces": {
+    "message": "Opening workspaces"
+  },
+  "openModeCurrent": {
+    "message": "Open in the current window (swap tabs)"
+  },
+  "openModeNewWindow": {
+    "message": "Always open in a new window"
+  },
+  "openModeHint": {
+    "message": "Windows with unsaved tabs are never replaced: the workspace opens in a new window instead."
+  },
+  "lazyLoad": {
+    "message": "Load restored tabs on demand"
+  },
+  "lazyLoadDesc": {
+    "message": "Only the active tab loads when you open a workspace. The rest load when you click them."
+  },
+  "visibleSections": {
+    "message": "Sections shown in each workspace"
+  },
+  "confirmDeleteSetting": {
+    "message": "Ask before deleting a workspace"
+  },
+  "settingsSuspension": {
+    "message": "Tab suspension"
+  },
+  "suspensionDesc": {
+    "message": "Suspended tabs stay in the tab strip but free their memory until you click them."
+  },
+  "suspendManual": {
+    "message": "Manually suspend tabs"
+  },
+  "suspendAuto": {
+    "message": "Auto-suspend inactive tabs"
+  },
+  "keepMaxBefore": {
+    "message": "Keep at most"
+  },
+  "keepMaxAfter": {
+    "message": "recent tabs in memory and suspend the rest"
+  },
+  "suspendAfter": {
+    "message": "Suspend tabs unused for"
+  },
+  "minutes": {
+    "message": "$p1$ minutes",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "hours": {
+    "message": "$p1$ h",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "exclusions": {
+    "message": "Exclusions"
+  },
+  "neverPinned": {
+    "message": "Never suspend pinned tabs"
+  },
+  "neverAudible": {
+    "message": "Never suspend tabs playing audio or video"
+  },
+  "exclusionsPlaceholder": {
+    "message": "Never suspend these (one per line):\nexample.com\nhttps://example.com/page"
+  },
+  "settingsInterface": {
+    "message": "Interface"
+  },
+  "toolbarButton": {
+    "message": "Toolbar button opens"
+  },
+  "toolbarButtonDesc": {
+    "message": "You can always use the other one from the menu or a shortcut."
+  },
+  "quickSwitcher": {
+    "message": "Quick switcher"
+  },
+  "sidePanel": {
+    "message": "Side panel"
+  },
+  "theme": {
+    "message": "Theme"
+  },
+  "themeSystem": {
+    "message": "System"
+  },
+  "themeLight": {
+    "message": "Light"
+  },
+  "themeDark": {
+    "message": "Dark"
+  },
+  "settingsShortcuts": {
+    "message": "Keyboard shortcuts"
+  },
+  "notSet": {
+    "message": "Not set"
+  },
+  "changeShortcuts": {
+    "message": "Change shortcuts"
+  },
+  "settingsBackup": {
+    "message": "Backup"
+  },
+  "exportData": {
+    "message": "Export data"
+  },
+  "exportDesc": {
+    "message": "Download all workspaces, resources, notes and settings as a JSON file."
+  },
+  "export": {
+    "message": "Export"
+  },
+  "importData": {
+    "message": "Import data"
+  },
+  "importMerge": {
+    "message": "Add to my current workspaces"
+  },
+  "importReplace": {
+    "message": "Replace everything"
+  },
+  "import": {
+    "message": "Import"
+  },
+  "importDone": {
+    "message": "Import finished: $p1$ workspaces",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "importFailed": {
+    "message": "Import failed: $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "confirmReplaceImport": {
+    "message": "Replace ALL your current workspaces with the file contents?"
+  },
+  "aboutLine": {
+    "message": "Free and open source, forever. MIT license."
+  },
+  "sourceCode": {
+    "message": "Source code"
+  },
+  "welcomeTitle": {
+    "message": "Welcome to Open Workspaces"
+  },
+  "welcomeSubtitle": {
+    "message": "Organize your tabs into workspaces. Unlimited, free and open source. No account, no tracking, everything stays in your browser."
+  },
+  "welcomeStep1Title": {
+    "message": "Save a window as a workspace"
+  },
+  "welcomeStep1Text": {
+    "message": "Each workspace is a set of tabs. Switching swaps the tabs of your window, and everything is saved automatically."
+  },
+  "welcomeStep2Title": {
+    "message": "Switch with Alt+A"
+  },
+  "welcomeStep2Text": {
+    "message": "Open the quick switcher, type to search across workspaces, tabs and resources, press Enter. Alt+T moves the current tab."
+  },
+  "welcomeStep3Title": {
+    "message": "Keep resources, notes and tasks"
+  },
+  "welcomeStep3Text": {
+    "message": "Save important links in sections, write notes and keep a to-do list for every workspace. Alt+S opens the side panel."
+  },
+  "welcomeStep4Title": {
+    "message": "Save memory"
+  },
+  "welcomeStep4Text": {
+    "message": "Restored tabs load on demand and inactive tabs can be suspended automatically. Configure it in Settings."
+  },
+  "welcomeFootnote": {
+    "message": "Tip: pin the extension to the toolbar so the switcher is one click away."
+  }
+}
