@@ -142,7 +142,7 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
     // The home tab and kept pinned tabs belong to the window, so they survive the swap.
     const leaving = oldTabs.filter((t) => !isWindowFixture(t, settings.keepPinned));
     if (leaving.length) await chrome.tabs.remove(leaving.map((t) => t.id)).catch(() => {});
-    if (settings.homeTab) await ensureHomeTab(windowId);
+    if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true });
     return ids;
   });
   await touchOpened(wsId);

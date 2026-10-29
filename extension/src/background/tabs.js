@@ -174,8 +174,11 @@ export function discardWhenReady(tabIds, timeoutMs = 8000) {
 export const homeUrl = () => chrome.runtime.getURL(HOME_PAGE);
 const isOwnHome = (tab) => (tab.pendingUrl || tab.url || '').startsWith(homeUrl());
 
-/** Makes sure `windowId` has exactly one home tab, pinned at the far left. */
-export async function ensureHomeTab(windowId) {
+/**
+ * Makes sure `windowId` has exactly one home tab, pinned at the far left. `refresh` is for a workspace
+ * switch: the browser may have frozen the home tab in the background, and a frozen page can't change its icon.
+ */
+export async function ensureHomeTab(windowId, { refresh = false } = {}) {
   let tabs;
   try {
     tabs = await chrome.tabs.query({ windowId });
@@ -191,8 +194,8 @@ export async function ensureHomeTab(windowId) {
     }
     if (!home.pinned) await chrome.tabs.update(home.id, { pinned: true });
     if (home.index !== 0) await chrome.tabs.move(home.id, { index: 0 });
-    // Its icon shows the window's workspace; a discarded tab would keep the old one until clicked.
-    if (home.discarded) await chrome.tabs.reload(home.id);
+    // Its icon shows the window's workspace; a discarded or frozen tab would keep the old one until clicked.
+    if (home.discarded || (refresh && !home.active)) await chrome.tabs.reload(home.id);
   } catch (err) {
     console.warn('[open-workspaces] home tab', err);
   }

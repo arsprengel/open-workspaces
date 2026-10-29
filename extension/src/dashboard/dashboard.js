@@ -2,7 +2,7 @@
 // The same page runs in the pinned home tab (home.html sets data-mode="home"): there the sidebar
 // switches this window's workspace and the main area always shows the workspace in this window.
 
-import { html, render, useEffect, useState } from '../vendor/preact-htm.js';
+import { html, render, useEffect, useLayoutEffect, useState } from '../vendor/preact-htm.js';
 import { isHomeUrl, isNewTabUrl, isWindowFixture, orderedWorkspaces } from '../shared/model.js';
 import { call, t, useStore, useTheme, useUnsavedWindows, useWindowTabs, wsLabel } from '../ui/api.js';
 import { Favicon, Icon, ToastHost, run, workspaceFavicon } from '../ui/components.js';
@@ -157,7 +157,7 @@ function App() {
 
   // The home tab's icon is the workspace of this window, so the tab strip says where you are.
   const homeWs = HOME && store?.currentId ? store.state.workspaces[store.currentId] : null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!HOME || !store) return undefined;
     let alive = true;
     const link = document.querySelector('link[rel=icon]');

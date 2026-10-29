@@ -320,6 +320,47 @@ async function popupUploadCheck(port, cdp, dash) {
   ];
 }
 
+/**
+ * A background tab gets its timers and animation frames held back by the browser (for minutes, after a
+ * while). The home tab sits in the background whenever you switch, so its icon must update without them.
+ */
+async function backgroundIconCheck(port, dash, mode) {
+  const info = await dash.eval(`(async () => {
+    const { state } = await chrome.storage.local.get('state');
+    const { windowMap } = await chrome.storage.session.get('windowMap');
+    const from = Object.values(state.workspaces).find((w) => w.name === ${JSON.stringify(mode === 'throttled' ? 'Drag from' : 'Drag to')});
+    const open = new Set(Object.values(windowMap));
+    const target = state.order.find((id) => !open.has(id) && !state.workspaces[id].archived);
+    const windowId = Number(Object.keys(windowMap).find((k) => windowMap[k] === from.id));
+    const home = (await chrome.tabs.query({ windowId })).find((t) => t.url.startsWith(chrome.runtime.getURL('src/home/home.html')));
+    const url = chrome.runtime.getURL('src/home/home.html') + '#probe-${mode}';
+    await chrome.tabs.update(home.id, { url });
+    return { windowId, homeId: home.id, url, target };
+  })()`);
+  await sleep(1000);
+  const page = (await getJson(port, '/json/list')).find((x) => x.url === info.url);
+  const cdp = new Cdp(page.webSocketDebuggerUrl);
+  await cdp.ready;
+  if (mode === 'throttled') {
+    // Nothing scheduled on timers or animation frames ever runs.
+    await cdp.eval(`window.setTimeout = () => 0; window.requestAnimationFrame = () => 0;`);
+  } else {
+    // After a while in the background the browser freezes the page: no script runs until it's shown.
+    await cdp.send('Page.enable');
+    await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
+  }
+  const icon = () => dash.eval(`chrome.tabs.get(${info.homeId}).then((t) => t.favIconUrl || '')`);
+  const before = await icon();
+  await dash.eval(`chrome.runtime.sendMessage({ type: 'ow:call', action: 'openWorkspace', payload: { id: ${JSON.stringify(info.target)}, windowId: ${info.windowId} } })`);
+  let after = before;
+  for (let i = 0; i < 20 && (after === before || !after.startsWith('data:image')); i++) {
+    await sleep(150);
+    after = await icon();
+  }
+  cdp.close();
+  return [{ name: `home tab icon updates while ${mode} in the background`, ok: after !== before && after.startsWith('data:image'), detail: '' }];
+}
+
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
 function dropOnCardCheck(cdp) {
   return cdp.eval(`(async () => {
@@ -576,6 +617,7 @@ async function main() {
     const checks = await pages.dashboard.eval(`(${scenario.toString()})()`);
     await sleep(800);
     checks.push(...(await dropOnCardCheck(pages.dashboard)));
+    for (const mode of ['throttled', 'frozen']) checks.push(...(await backgroundIconCheck(port, pages.dashboard, mode)));
     for (const file of ['icon.png', 'icon.ico']) checks.push(...(await uploadCheck(pages.dashboard, resolve(import.meta.dirname, '..', 'tests', 'fixtures', file))));
 
     for (const name of ['dashboard', 'popup', 'sidepanel']) {
