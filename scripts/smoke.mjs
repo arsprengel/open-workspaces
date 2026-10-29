@@ -90,7 +90,11 @@ async function scenario() {
   };
   const state = async () => (await chrome.storage.local.get('state')).state;
   const winMap = async () => (await chrome.storage.session.get('windowMap')).windowMap ?? {};
-  const urlsOf = async (windowId) => (await chrome.tabs.query({ windowId })).map((t) => t.pendingUrl || t.url);
+  const HOME = chrome.runtime.getURL('src/home/home.html');
+  const isHome = (t) => (t.pendingUrl || t.url || '').startsWith(HOME);
+  const tabsOf = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => !isHome(t));
+  const urlsOf = async (windowId) => (await tabsOf(windowId)).map((t) => t.pendingUrl || t.url);
+  const homesOf = async (windowId) => (await chrome.tabs.query({ windowId })).filter(isHome);
   const waitFor = async (fn, ms = 6000) => {
     const end = Date.now() + ms;
     while (Date.now() < end) {
@@ -107,6 +111,11 @@ async function scenario() {
   const { id: A } = await call('createWorkspace', { name: 'Alpha', icon: '🚀', fromWindowId: win.id });
   check('window bound to A', (await winMap())[win.id] === A);
   check('A snapshot has 3 tabs', await waitFor(async () => (await state()).workspaces[A].tabs.length === 3), (await state()).workspaces[A].tabs);
+  check('new window gets the home tab', await waitFor(async () => (await homesOf(win.id)).length === 1));
+  const [home] = await homesOf(win.id);
+  check('home tab is pinned at the far left', home?.pinned && home.index === 0, home);
+  await sleep(600);
+  check('home tab is not saved into the workspace', !(await state()).workspaces[A].tabs.some((t) => t.url.startsWith(HOME)));
 
   // 2. Create B (closed) and switch the window to it
   const { id: B } = await call('createWorkspace', { name: 'Beta' });
@@ -122,12 +131,43 @@ async function scenario() {
 
   // 4. Switch back to A: tabs restored, inactive ones lazily discarded
   await call('openWorkspace', { id: A, windowId: win.id });
-  const restored = await chrome.tabs.query({ windowId: win.id });
+  const restored = await tabsOf(win.id);
   check('A restored with its 3 URLs', restored.map((t) => t.pendingUrl || t.url).join() === U.join(), restored.map((t) => t.url));
-  check('inactive restored tabs get discarded', await waitFor(async () => (await chrome.tabs.query({ windowId: win.id })).filter((t) => !t.active).every((t) => t.discarded)));
-  const disc = await chrome.tabs.query({ windowId: win.id });
+  check('home tab survives switching', (await homesOf(win.id)).length === 1 && (await homesOf(win.id))[0].index === 0);
+  check('inactive restored tabs get discarded', await waitFor(async () => (await tabsOf(win.id)).filter((t) => !t.active).every((t) => t.discarded)));
+  const disc = await tabsOf(win.id);
   check('discarded tabs keep their URL', disc.every((t) => U.includes(t.url)), disc.map((t) => t.url));
   check('B kept example.org after switching away', (await state()).workspaces[B].tabs.some((t) => t.url.startsWith('https://example.org')));
+
+  // 4b. Pinned tabs belong to the window: they stay put when switching and aren't saved into workspaces
+  const PIN = 'https://example.net/';
+  await chrome.tabs.create({ windowId: win.id, url: PIN, pinned: true, active: false });
+  await sleep(900);
+  check('pinned tab is not saved into A', !(await state()).workspaces[A].tabs.some((t) => t.url === PIN), (await state()).workspaces[A].tabs);
+  await call('openWorkspace', { id: B, windowId: win.id });
+  const pinnedAfter = (await tabsOf(win.id)).filter((t) => t.pinned).map((t) => t.pendingUrl || t.url);
+  check('pinned tab stays when switching to B', pinnedAfter.length === 1 && pinnedAfter[0] === PIN, pinnedAfter);
+  await sleep(600);
+  check('pinned tab is not saved into B', !(await state()).workspaces[B].tabs.some((t) => t.url === PIN));
+  await call('openWorkspace', { id: A, windowId: win.id });
+  check('back in A: pinned tab still there once, A tabs intact', (await urlsOf(win.id)).join() === [PIN, ...U].join(), await urlsOf(win.id));
+  await chrome.tabs.remove((await tabsOf(win.id)).filter((t) => t.pinned).map((t) => t.id));
+  await sleep(600);
+
+  // 4c. Turning the home tab off removes it everywhere; turning it on brings it back
+  await call('updateSettings', { patch: { homeTab: false } });
+  check('home tab removed when turned off', await waitFor(async () => !(await homesOf(win.id)).length));
+  await call('updateSettings', { patch: { homeTab: true } });
+  check('home tab back when turned on', await waitFor(async () => (await homesOf(win.id)).length === 1));
+
+  // 4d. The home tab's icon is the window's workspace and follows it when switching
+  const homeIcon = async () => (await homesOf(win.id))[0]?.favIconUrl ?? '';
+  check('home tab icon is the workspace', await waitFor(async () => (await homeIcon()).startsWith('data:image/png')), await homeIcon());
+  const iconA = await homeIcon();
+  await call('openWorkspace', { id: B, windowId: win.id });
+  check('home tab icon follows the workspace', await waitFor(async () => (await homeIcon()).startsWith('data:image/png') && (await homeIcon()) !== iconA));
+  await call('openWorkspace', { id: A, windowId: win.id });
+  check('home tab icon comes back', await waitFor(async () => (await homeIcon()) === iconA));
 
   // 5. Close A: its window goes away, tabs stay saved
   await call('closeWorkspace', { id: A });
@@ -147,7 +187,7 @@ async function scenario() {
   check('opening an open workspace reuses its window', again.windowId === aWin);
 
   // 8. Move a tab from A (open) to B (closed)
-  const [first] = await chrome.tabs.query({ windowId: aWin, index: 0 });
+  const [first] = await tabsOf(aWin);
   await call('moveTabs', { tabIds: [first.id], targetId: B });
   await sleep(600);
   check('moved tab left A window', (await urlsOf(aWin)).length === 2);
@@ -207,8 +247,142 @@ async function scenario() {
   s = await state();
   check('nested settings merge', s.settings.suspend.mode === 'auto' && s.settings.suspend.maxTabs === 3 && s.settings.suspend.neverPinned === true && s.settings.theme === 'dark');
   check('auto-suspend alarm created', !!(await chrome.alarms.get('ow-auto-suspend')));
+  await call('updateSettings', { patch: { suspend: { mode: 'manual' } } });
+
+  // 14. Dragging a tab into another workspace's window moves it to that workspace
+  const w1 = await chrome.windows.create({ url: ['https://example.com/?w1a', 'https://example.com/?w1b'], focused: false });
+  const w2 = await chrome.windows.create({ url: ['https://example.com/?w2a'], focused: false });
+  await sleep(700);
+  const { id: D1 } = await call('createWorkspace', { name: 'Drag from', fromWindowId: w1.id });
+  const { id: D2 } = await call('createWorkspace', { name: 'Drag to', fromWindowId: w2.id });
+  const [dragged] = (await tabsOf(w1.id)).filter((t) => (t.pendingUrl || t.url).includes('w1b'));
+  await chrome.tabs.move(dragged.id, { windowId: w2.id, index: -1 });
+  check('tab dragged to another window joins its workspace', await waitFor(async () => {
+    const s = await state();
+    return s.workspaces[D2].tabs.some((t) => t.url.includes('w1b')) && !s.workspaces[D1].tabs.some((t) => t.url.includes('w1b'));
+  }));
 
   return checks;
+}
+
+/** Uploads an image through the real workspace form (file input -> preview -> Save) and checks it was stored. */
+async function uploadCheck(cdp, file) {
+  const wsId = await cdp.eval(`(async () => {
+    const { state } = await chrome.storage.local.get('state');
+    const id = state.order[0];
+    location.hash = '#/ws/' + id;
+    return id;
+  })()`);
+  await sleep(700);
+  await cdp.eval(`document.querySelector('.sidebar .sw-field').click()`);
+  await sleep(300);
+  const { root } = await cdp.send('DOM.getDocument', { depth: -1 });
+  const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '.modal input[type=file]' });
+  await cdp.send('DOM.setFileInputFiles', { nodeId, files: [file] });
+  await sleep(800);
+  const preview = await cdp.eval(`!!document.querySelector('.identity .sw-field img')`);
+  await cdp.eval(`document.querySelector('.modal button[type=submit]').click()`);
+  await sleep(800);
+  const stored = await cdp.eval(`chrome.storage.local.get('state').then(({ state }) => state.workspaces[${JSON.stringify(wsId)}].image || '')`);
+  const name = file.split('.').pop().toUpperCase();
+  return [
+    { name: `${name} upload shows in the form preview`, ok: preview, detail: '' },
+    { name: `${name} upload is saved to the workspace`, ok: stored.startsWith('data:image/png;base64,'), detail: JSON.stringify(stored.slice(0, 40)) },
+  ];
+}
+
+/**
+ * The toolbar popup closes as soon as the system file chooser takes focus, so "Upload image" there must
+ * save the workspace and continue in a full page editor instead of opening the chooser.
+ */
+async function popupUploadCheck(port, cdp, dash) {
+  await cdp.send('Page.reload');
+  await sleep(900);
+  await cdp.eval(`document.querySelector('.popup-foot .btn').click()`);
+  await sleep(300);
+  await cdp.eval(`(() => { const i = document.querySelector('#ws-name'); i.focus(); document.execCommand('insertText', false, 'From popup'); })()`);
+  // Fire and forget: the popup closes itself once the editor opens, so no reply would come back.
+  cdp.send('Runtime.evaluate', { expression: `document.querySelector('.modal .field-row .btn').click()` }).catch(() => {});
+  await sleep(1500);
+  const id = await dash.eval(`chrome.storage.local.get('state').then(({ state }) => Object.values(state.workspaces).find((w) => w.name === 'From popup')?.id ?? null)`).catch(() => null);
+  const editor = id && (await getJson(port, '/json/list')).find((x) => x.url.endsWith(`dashboard.html#/ws/${id}/edit`));
+  let formOpen = false;
+  if (editor) {
+    const page = new Cdp(editor.webSocketDebuggerUrl);
+    await page.ready;
+    await sleep(600);
+    formOpen = await page.eval(`!!document.querySelector('.modal input[type=file]')`);
+    page.close();
+  }
+  return [
+    { name: 'popup upload saves the new workspace', ok: !!id, detail: '' },
+    { name: 'popup upload continues in the full page editor', ok: !!editor && formOpen, detail: JSON.stringify({ editor: !!editor, formOpen }) },
+  ];
+}
+
+/**
+ * A background tab gets its timers held back by the browser (for minutes, after a while) and paints no
+ * frames, so animation frames and img.decode() never settle. The home tab sits in the background whenever
+ * you switch, so its icon must update without them, also for a workspace with an uploaded image.
+ */
+async function backgroundIconCheck(port, dash, mode, image) {
+  const info = await dash.eval(`(async () => {
+    const { state } = await chrome.storage.local.get('state');
+    const { windowMap } = await chrome.storage.session.get('windowMap');
+    const from = Object.values(state.workspaces).find((w) => w.name === ${JSON.stringify(mode === 'throttled' ? 'Drag from' : 'Drag to')});
+    const open = new Set(Object.values(windowMap));
+    const target = state.order.find((id) => !open.has(id) && !state.workspaces[id].archived);
+    const windowId = Number(Object.keys(windowMap).find((k) => windowMap[k] === from.id));
+    const home = (await chrome.tabs.query({ windowId })).find((t) => t.url.startsWith(chrome.runtime.getURL('src/home/home.html')));
+    const url = chrome.runtime.getURL('src/home/home.html') + '#probe-${mode}';
+    await chrome.tabs.update(home.id, { url });
+    await chrome.runtime.sendMessage({ type: 'ow:call', action: 'updateWorkspace', payload: { id: target, patch: { image: ${JSON.stringify(image)} } } });
+    return { windowId, homeId: home.id, url, target };
+  })()`);
+  await sleep(1000);
+  const page = (await getJson(port, '/json/list')).find((x) => x.url === info.url);
+  const cdp = new Cdp(page.webSocketDebuggerUrl);
+  await cdp.ready;
+  if (mode === 'throttled') {
+    // Nothing scheduled on timers or animation frames ever runs, and no image decode ever finishes.
+    await cdp.eval(`window.setTimeout = () => 0; window.requestAnimationFrame = () => 0; HTMLImageElement.prototype.decode = () => new Promise(() => {});`);
+  } else {
+    // After a while in the background the browser freezes the page: no script runs until it's shown.
+    await cdp.send('Page.enable');
+    await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
+  }
+  const icon = () => dash.eval(`chrome.tabs.get(${info.homeId}).then((t) => t.favIconUrl || '')`);
+  const before = await icon();
+  await dash.eval(`chrome.runtime.sendMessage({ type: 'ow:call', action: 'openWorkspace', payload: { id: ${JSON.stringify(info.target)}, windowId: ${info.windowId} } })`);
+  let after = before;
+  for (let i = 0; i < 20 && (after === before || !after.startsWith('data:image')); i++) {
+    await sleep(150);
+    after = await icon();
+  }
+  cdp.close();
+  return [{ name: `home tab icon updates while ${mode} in the background`, ok: after !== before && after.startsWith('data:image'), detail: '' }];
+}
+
+/** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
+function dropOnCardCheck(cdp) {
+  return cdp.eval(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const { state } = await chrome.storage.local.get('state');
+    const { windowMap } = await chrome.storage.session.get('windowMap');
+    const byName = (n) => Object.values(state.workspaces).find((w) => w.name === n);
+    const winOf = (id) => Number(Object.keys(windowMap).find((k) => windowMap[k] === id));
+    const target = byName('Drag from');
+    const tab = await chrome.tabs.create({ windowId: winOf(byName('Drag to').id), url: 'https://example.com/?dropped', active: false });
+    location.hash = '#/ws/' + byName('Drag to').id;
+    await sleep(900);
+    const card = [...document.querySelectorAll('.ws-chip')].find((c) => c.title === target.name);
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('application/x-ow-tab', JSON.stringify({ tabId: tab.id, url: 'https://example.com/?dropped' }));
+    for (const type of ['dragover', 'drop']) card.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true }));
+    await sleep(1200);
+    const moved = await chrome.tabs.get(tab.id).catch(() => null);
+    return [{ name: 'tab dropped on a workspace card moves there', ok: moved?.windowId === winOf(target.id), detail: '' }];
+  })()`);
 }
 
 /** Demo data used for README screenshots (SCREENSHOTS=1). */
@@ -220,13 +394,15 @@ function demoState() {
     id: id(n), name, icon, color, createdAt: Date.now(), updatedAt: Date.now(), lastOpenedAt: Date.now() - n * 36e5 * 7,
     archived: false, tabs: [], groups: [], sections: [{ id: `s${n}`, name: '', collapsed: false, items: [] }], notes: '', tasks: [], ...extra,
   });
+  // Real pages, so the screenshots show real titles and favicons. The two pinned tabs stay in every workspace.
   const work = ws(1, 'Work', '💼', '#6366f1', {
     tabs: [
-      tab('https://mail.google.com/', 'Inbox (3)', { pinned: true }),
-      tab('https://github.com/open-workspaces/open-workspaces/pulls', 'Pull requests · open-workspaces', { active: true, groupKey: 'g1' }),
-      tab('https://github.com/open-workspaces/open-workspaces/issues', 'Issues · open-workspaces', { groupKey: 'g1' }),
-      tab('https://linear.app/team/cycle', 'Current cycle · Linear'),
-      tab('https://calendar.google.com/', 'Calendar - This week'),
+      tab('https://mail.google.com/', 'Gmail', { pinned: true }),
+      tab('https://www.youtube.com/', 'YouTube', { pinned: true }),
+      tab('https://github.com/trending', 'Trending repositories on GitHub today', { active: true, groupKey: 'g1' }),
+      tab('https://developer.chrome.com/docs/extensions', 'Chrome Extensions', { groupKey: 'g1' }),
+      tab('https://linear.app/changelog', 'Changelog - Linear'),
+      tab('https://news.ycombinator.com/', 'Hacker News'),
     ],
     groups: [{ key: 'g1', title: 'Review', color: 'blue', collapsed: false }],
     sections: [
@@ -243,43 +419,143 @@ function demoState() {
   const side = ws(2, 'Side project', '🚀', '#ec4899', { tabs: [tab('https://vercel.com/dashboard', 'Dashboard · Vercel'), tab('https://stripe.com/docs', 'Stripe docs')] });
   const travel = ws(3, 'Japan trip', '✈️', '#14b8a6', { tabs: [tab('https://www.google.com/maps', 'Google Maps'), tab('https://www.booking.com/', 'Booking.com'), tab('https://www.japan-guide.com/', 'japan-guide.com')] });
   const reading = ws(4, 'Reading list', '📚', '#f97316', { tabs: [tab('https://news.ycombinator.com/', 'Hacker News')] });
-  const music = ws(5, 'Music', '', '#22c55e', { tabs: [tab('https://open.spotify.com/', 'Spotify')] });
-  const list = [work, side, travel, reading, music];
+  // An uploaded image as the workspace icon (the UI stores uploads as small PNGs; an SVG keeps the demo readable).
+  const vinyl = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><circle cx="48" cy="48" r="44" fill="#111"/><circle cx="48" cy="48" r="34" fill="none" stroke="#333" stroke-width="2"/><circle cx="48" cy="48" r="26" fill="none" stroke="#2a2a2a" stroke-width="2"/><circle cx="48" cy="48" r="15" fill="#f97316"/><circle cx="48" cy="48" r="3" fill="#111"/></svg>`;
+  const music = ws(5, 'Music', '', '#22c55e', { image: `data:image/svg+xml;base64,${Buffer.from(vinyl).toString('base64')}`, tabs: [tab('https://open.spotify.com/', 'Spotify')] });
+  const client = ws(6, 'Client Acme', '', '#eab308', { tabs: [tab('https://www.figma.com/', 'Figma')] });
+  const list = [work, side, travel, reading, music, client];
   return { order: list.map((w) => w.id), workspaces: Object.fromEntries(list.map((w) => [w.id, w])), settings: {} };
 }
 
-async function captureScreens(port, extId, dir) {
+/**
+ * Opens the demo workspace for real in its own window, then screenshots every surface from inside it.
+ * SCREENSHOTS=1 writes the README set to docs/screenshots; any other value is a folder for the full
+ * design-validation set (several widths, both themes, modal and empty states).
+ */
+async function captureScreens(port, extId, dir, dash, full) {
   const { mkdirSync, writeFileSync } = await import('node:fs');
   mkdirSync(dir, { recursive: true });
-  const shots = [
-    { name: 'dashboard', path: 'dashboard/dashboard.html#/ws/demo-1', w: 1280, h: 800 },
-    { name: 'dashboard-resources', path: 'dashboard/dashboard.html#/ws/demo-1', w: 1280, h: 800, view: 'resources' },
-    { name: 'popup', path: 'popup/popup.html', w: 360, h: 560, bind: true },
-    { name: 'sidepanel', path: 'sidepanel/sidepanel.html', w: 400, h: 760, view: 'resources', bind: true },
+  const ext = (path) => `chrome-extension://${extId}/src/${path}`;
+
+  const demoWin = await dash.eval(`(async () => {
+    const call = (action, payload) => chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+    await call('updateSettings', { patch: { lazyLoadTabs: false, suspend: { mode: 'manual' } } });
+    const win = await chrome.windows.create({ focused: true, width: 1440, height: 900 });
+    await call('openWorkspace', { id: 'demo-1', windowId: win.id });
+    return win.id;
+  })()`);
+  await sleep(9000); // let the real pages load their titles and favicons
+
+  const attach = async (match) => {
+    for (let i = 0; i < 40; i++) {
+      const target = (await getJson(port, '/json/list')).find((x) => x.type === 'page' && match(x.url));
+      if (target) {
+        const cdp = new Cdp(target.webSocketDebuggerUrl);
+        await cdp.ready;
+        return { cdp, target };
+      }
+      await sleep(150);
+    }
+    throw new Error('screenshot target not found');
+  };
+  const openInDemo = async (path) => {
+    const url = ext(path);
+    const tabId = await dash.eval(`chrome.tabs.create({ windowId: ${demoWin}, url: ${JSON.stringify(url)} }).then((t) => t.id)`);
+    const { cdp, target } = await attach((u) => u === url);
+    return { cdp, target, close: () => dash.eval(`chrome.tabs.remove(${tabId})`) };
+  };
+  // Every window has a home tab; tag the one we want with a hash so its DevTools target can be told apart.
+  const homeOf = async (windowId) => {
+    const url = `${ext('home/home.html')}#shot-${windowId}`;
+    await dash.eval(`chrome.tabs.query({ windowId: ${windowId} }).then(async (tabs) => {
+      const home = tabs.find((t) => t.url.startsWith(chrome.runtime.getURL('src/home/home.html')));
+      await chrome.tabs.update(home.id, { url: ${JSON.stringify(url)}, active: true });
+    })`);
+    const { cdp, target } = await attach((u) => u === url);
+    return { cdp, target, close: async () => {} };
+  };
+  const dashWin = await dash.eval('chrome.windows.getCurrent().then((w) => w.id)');
+
+  const readme = [
+    { name: 'home', home: demoWin, w: 1280, h: 800 },
+    { name: 'home-resources', home: demoWin, w: 1280, h: 800, view: 'resources' },
+    { name: 'dashboard', path: 'dashboard/dashboard.html#/ws/demo-2', w: 1280, h: 800 },
+    { name: 'popup', path: 'popup/popup.html', w: 360, h: 560 },
+    { name: 'sidepanel', path: 'sidepanel/sidepanel.html', w: 400, h: 760, view: 'resources' },
     { name: 'settings', path: 'dashboard/dashboard.html#/settings', w: 1280, h: 1000 },
   ];
+  const validation = [
+    ...[1440, 768, 375].map((w) => ({ name: `home-${w}`, home: demoWin, w, h: w === 375 ? 812 : w === 768 ? 1024 : 900 })),
+    ...[1440, 768, 375].map((w) => ({ name: `dashboard-${w}`, path: 'dashboard/dashboard.html#/ws/demo-2', w, h: w === 375 ? 812 : w === 768 ? 1024 : 900 })),
+    { name: 'home-resources-1440', home: demoWin, w: 1440, h: 900, view: 'resources' },
+    { name: 'home-tasks-1440', home: demoWin, w: 1440, h: 900, view: 'tasks' },
+    { name: 'home-unsaved-1440', home: dashWin, w: 1440, h: 900 },
+    { name: 'settings-1440', path: 'dashboard/dashboard.html#/settings', w: 1440, h: 1700 },
+    { name: 'popup', path: 'popup/popup.html', w: 360, h: 580 },
+    { name: 'popup-search', path: 'popup/popup.html', w: 360, h: 580, type: 'git' },
+    { name: 'sidepanel', path: 'sidepanel/sidepanel.html', w: 400, h: 800 },
+    { name: 'sidepanel-resources', path: 'sidepanel/sidepanel.html', w: 400, h: 800, view: 'resources' },
+    { name: 'form-1440', home: demoWin, w: 1440, h: 900, click: '.sidebar .sw-field' },
+    { name: 'menu-1440', home: demoWin, w: 1440, h: 900, click: '.sidebar .sw-head .icon-btn' },
+    { name: 'chip-menu-1440', home: demoWin, w: 1440, h: 900, click: '.rack .ws-chip:nth-child(2) .chip-menu .icon-btn' },
+    { name: 'chip-menu-375', home: demoWin, w: 375, h: 812, click: '.rack .ws-chip:nth-child(1) .chip-menu .icon-btn' },
+  ];
+
   for (const dark of [false, true]) {
-    for (const shot of shots) {
-      const target = await getJson(port, `/json/new?${encodeURIComponent(`chrome-extension://${extId}/src/${shot.path}`)}`, 'PUT');
-      const cdp = new Cdp(target.webSocketDebuggerUrl);
-      await cdp.ready;
+    for (const shot of full ? validation : readme) {
+      const page = shot.home != null ? await homeOf(shot.home) : await openInDemo(shot.path);
+      const { cdp } = page;
       await cdp.send('Emulation.setDeviceMetricsOverride', { width: shot.w, height: shot.h, deviceScaleFactor: 2, mobile: false });
       await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
-      // Popup/side panel show the window's current workspace; the dashboard shows "Work" as closed (saved tabs).
-      await cdp
-        .eval(`(async () => {
-          localStorage.setItem('ow:view', ${JSON.stringify(shot.view ?? 'tabs')});
-          const win = await chrome.windows.getCurrent();
-          await chrome.storage.session.set({ windowMap: ${shot.bind ? "{ [win.id]: 'demo-1' }" : '{}'} });
-        })()`)
-        .catch(() => {});
+      await cdp.eval(`localStorage.setItem('ow:view', ${JSON.stringify(shot.view ?? 'tabs')})`).catch(() => {});
       await cdp.send('Page.reload');
-      await sleep(1200);
+      await sleep(1500);
+      if (shot.type) {
+        await cdp.eval(`(() => { const i = document.querySelector('.popup-search input'); i.focus(); document.execCommand('insertText', false, ${JSON.stringify(shot.type)}); })()`);
+        await sleep(400);
+      }
+      if (shot.click) {
+        await cdp.eval(`document.querySelector(${JSON.stringify(shot.click)})?.click()`);
+        await sleep(500);
+      }
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' });
       writeFileSync(join(dir, `${shot.name}${dark ? '-dark' : ''}.png`), Buffer.from(data, 'base64'));
-      await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);
+      if (full && !dark && shot.w === 1440 && !shot.click) {
+        // Keep the rendered page as a standalone file for the design-quality scan.
+        const htmlDoc = await cdp.eval(`(async () => {
+          const css = (await Promise.all([...document.styleSheets].map((s) => s.href ? fetch(s.href).then((r) => r.text()) : s.ownerNode.textContent))).join('\\n');
+          return '<!doctype html><html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + document.body.innerHTML + '</body></html>';
+        })()`);
+        writeFileSync(join(dir, '..', `preview-${shot.name.replace(/-1440$/, '')}.html`), htmlDoc);
+      }
+      await cdp.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
       cdp.close();
+      await page.close();
     }
+  }
+  if (full) {
+    // The home tab icon for every demo workspace, side by side at tab-strip sizes.
+    const page = await homeOf(demoWin);
+    const sheet = await page.cdp.eval(`(async () => {
+      const { workspaceFavicon } = await import('../ui/components.js');
+      const { state } = await chrome.storage.local.get('state');
+      const icons = await Promise.all(state.order.map((id) => workspaceFavicon(state.workspaces[id])));
+      const canvas = Object.assign(document.createElement('canvas'), { width: 40 + icons.length * 120, height: 140 });
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#dee1e6';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const [i, src] of icons.entries()) {
+        const img = new Image();
+        img.src = src;
+        await img.decode();
+        ctx.drawImage(img, 20 + i * 120, 20, 64, 64);
+        ctx.drawImage(img, 20 + i * 120 + 76, 20, 32, 32);
+        ctx.drawImage(img, 20 + i * 120 + 76, 64, 16, 16);
+      }
+      return canvas.toDataURL('image/png');
+    })()`);
+    writeFileSync(join(dir, 'home-tab-icons.png'), Buffer.from(sheet.split(',')[1], 'base64'));
+    page.cdp.close();
   }
   console.log(`screenshots saved to ${dir}`);
 }
@@ -342,6 +618,10 @@ async function main() {
 
     const checks = await pages.dashboard.eval(`(${scenario.toString()})()`);
     await sleep(800);
+    checks.push(...(await dropOnCardCheck(pages.dashboard)));
+    const fixtureImage = `data:image/png;base64,${readFileSync(resolve(import.meta.dirname, '..', 'tests', 'fixtures', 'icon.png')).toString('base64')}`;
+    for (const [mode, image] of [['throttled', fixtureImage], ['frozen', '']]) checks.push(...(await backgroundIconCheck(port, pages.dashboard, mode, image)));
+    for (const file of ['icon.png', 'icon.ico']) checks.push(...(await uploadCheck(pages.dashboard, resolve(import.meta.dirname, '..', 'tests', 'fixtures', file))));
 
     for (const name of ['dashboard', 'popup', 'sidepanel']) {
       const rendered = await pages[name].eval(`document.getElementById('app').children.length > 0 && document.body.innerText.length > 20`);
@@ -349,6 +629,7 @@ async function main() {
     }
     const dashText = await pages.dashboard.eval('document.body.innerText');
     checks.push({ name: 'dashboard lists workspaces', ok: dashText.includes('Alpha') && dashText.includes('Beta'), detail: dashText.slice(0, 200) });
+    checks.push(...(await popupUploadCheck(port, pages.popup, pages.dashboard)));
 
     if (process.env.DEBUG) console.log(swCdp.events.filter((e) => e.method === 'Runtime.consoleAPICalled').map((e) => e.params.args.map((a) => a.value ?? a.description).join(' ')));
     for (const [name, cdp] of [...Object.entries(pages), ['service-worker', swCdp]]) {
@@ -369,7 +650,8 @@ async function main() {
         await chrome.runtime.sendMessage({ type: 'ow:call', action: 'importData', payload: { data: ${JSON.stringify(demoState())}, mode: 'replace' } });
         await chrome.runtime.sendMessage({ type: 'ow:call', action: 'updateSettings', payload: { patch: { theme: 'system' } } });
       })()`);
-      await captureScreens(port, extId, resolve(process.env.SCREENSHOTS === '1' ? 'docs/screenshots' : process.env.SCREENSHOTS));
+      const full = process.env.SCREENSHOTS !== '1';
+      await captureScreens(port, extId, resolve(full ? process.env.SCREENSHOTS : 'docs/screenshots'), pages.dashboard, full);
     }
     for (const cdp of Object.values(pages)) cdp.close();
     swCdp.close();

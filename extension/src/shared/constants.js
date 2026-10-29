@@ -9,6 +9,8 @@ export const STATE_KEY = 'state';
 export const WINDOW_MAP_KEY = 'windowMap';
 /** chrome.storage.session key used to tell the popup which mode to open in (search, move tab, new...). */
 export const POPUP_INTENT_KEY = 'popupIntent';
+/** The page shown in the pinned "home" tab at the left of every window. */
+export const HOME_PAGE = 'src/home/home.html';
 
 export const COLORS = [
   '#6366f1', // indigo
@@ -40,6 +42,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   /** 'system' | 'light' | 'dark' */
   theme: 'system',
   confirmDelete: true,
+  /** Keep a pinned tab with the extension icon at the left of every window (opens the home page). */
+  homeTab: true,
+  /** Tabs pinned in the browser belong to the window: they stay open when switching workspaces. */
+  keepPinned: true,
   /** Which sections a workspace shows. */
   views: { tabs: true, resources: true, notes: true, tasks: true },
   suspend: {
@@ -60,4 +66,4 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export const MSG = 'ow:call';
 
 /** Update this when the repository moves. */
-export const REPO_URL = 'https://github.com/open-workspaces/open-workspaces';
+export const REPO_URL = 'https://github.com/arsprengel/open-workspaces';

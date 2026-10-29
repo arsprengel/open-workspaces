@@ -1,6 +1,6 @@
 // UI-side helpers: talking to the service worker, reading state reactively, opening URLs.
 
-import { useEffect, useState } from '../vendor/preact-htm.js';
+import { useEffect, useLayoutEffect, useState } from '../vendor/preact-htm.js';
 import { MSG, STATE_KEY, WINDOW_MAP_KEY } from '../shared/constants.js';
 import { normalizeState, normalizeUrl } from '../shared/model.js';
 
@@ -19,7 +19,8 @@ export async function call(action, payload = {}) {
  */
 export function useStore() {
   const [data, setData] = useState(null);
-  useEffect(() => {
+  // Not useEffect: that waits for a painted frame, and a background tab (the home tab) paints none.
+  useLayoutEffect(() => {
     let alive = true;
     const load = async () => {
       const [local, session, win] = await Promise.all([

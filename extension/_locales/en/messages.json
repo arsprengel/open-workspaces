@@ -148,9 +148,6 @@
   "saveWindowAsWorkspace": {
     "message": "Save window as workspace"
   },
-  "openWorkspace": {
-    "message": "Open workspace"
-  },
   "closeWorkspace": {
     "message": "Close workspace (tabs are saved)"
   },
@@ -586,5 +583,44 @@
   },
   "welcomeFootnote": {
     "message": "Tip: pin the extension to the toolbar so the switcher is one click away."
+  },
+  "imageFailed": {
+    "message": "Couldn't read that image. Try a PNG, ICO, SVG, JPG or WebP file under 5 MB."
+  },
+  "customColor": {
+    "message": "Custom color"
+  },
+  "uploadImage": {
+    "message": "Upload image"
+  },
+  "uploadImageHint": {
+    "message": "PNG, ICO, SVG, JPG or WebP, up to 5 MB"
+  },
+  "saveAsWorkspace": {
+    "message": "Save as workspace"
+  },
+  "pinnedTabs": {
+    "message": "Pinned"
+  },
+  "pinnedHint": {
+    "message": "Stay open in every workspace"
+  },
+  "noOpenTabs": {
+    "message": "No tabs besides the pinned ones."
+  },
+  "homeTabSetting": {
+    "message": "Extension icon in the tab strip"
+  },
+  "homeTabDesc": {
+    "message": "Keeps a small pinned tab with the Open Workspaces icon at the left of every window. Click it to see and switch workspaces."
+  },
+  "keepPinnedSetting": {
+    "message": "Pinned tabs stay in every workspace"
+  },
+  "keepPinnedDesc": {
+    "message": "Tabs you pin in the browser (like Gmail or YouTube) stay open when you switch workspaces instead of being saved into one."
+  },
+  "windowTabs": {
+    "message": "Tabs in this window"
   }
 }

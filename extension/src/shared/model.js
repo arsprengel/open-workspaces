@@ -20,6 +20,21 @@ export function isNewTabUrl(url) {
   return url === 'about:blank' || NEWTAB_RE.test(url) || url.startsWith('chrome-search://local-ntp');
 }
 
+const HOME_RE = /^[a-z-]+:\/\/[a-p]{32}\/src\/home\/home\.html(?:[?#]|$)/i;
+
+/** True for the extension's own home page, which lives in a pinned tab at the left of every window. */
+export function isHomeUrl(url) {
+  return HOME_RE.test(str(url));
+}
+
+/**
+ * Tabs that belong to the window rather than to its workspace: the home tab, plus pinned tabs
+ * when the user keeps them across workspaces. They are never saved, restored or swapped out.
+ */
+export function isWindowFixture(tab, keepPinned) {
+  return isHomeUrl(tab.pendingUrl || tab.url) || (!!keepPinned && !!tab.pinned);
+}
+
 /** Strips the hash so the same page with a different anchor still matches. */
 export function normalizeUrl(url) {
   try {
@@ -86,7 +101,14 @@ export function serializeGroup(group) {
 
 /** Number of tabs worth showing (new tab pages don't count). */
 export function realTabCount(ws) {
-  return ws.tabs.filter((t) => !isNewTabUrl(t.url)).length;
+  return ws.tabs.filter((t) => !isNewTabUrl(t.url) && !isHomeUrl(t.url)).length;
+}
+
+const MAX_IMAGE_LEN = 300_000;
+
+/** A workspace image is a small data:image URL (resized to PNG by the UI). Anything else is dropped. */
+export function cleanImage(value) {
+  return typeof value === 'string' && /^data:image\/[a-z+.-]+[;,]/i.test(value) && value.length <= MAX_IMAGE_LEN ? value : '';
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +132,7 @@ export function makeWorkspace(partial = {}, index = 0) {
     id: uid(),
     name: '',
     icon: '',
+    image: '',
     color: COLORS[index % COLORS.length],
     createdAt: now,
     updatedAt: now,
@@ -126,7 +149,7 @@ export function makeWorkspace(partial = {}, index = 0) {
 
 function normalizeTabs(tabs) {
   return (Array.isArray(tabs) ? tabs : [])
-    .filter((t) => isObj(t) && typeof t.url === 'string')
+    .filter((t) => isObj(t) && typeof t.url === 'string' && !isHomeUrl(t.url))
     .map((t) => ({
       url: t.url,
       title: str(t.title),
@@ -152,6 +175,7 @@ export function normalizeWorkspace(ws) {
     id: str(ws.id) || uid(),
     name: str(ws.name),
     icon: str(ws.icon),
+    image: cleanImage(ws.image),
     color: str(ws.color, COLORS[0]),
     createdAt: Number(ws.createdAt) || Date.now(),
     updatedAt: Number(ws.updatedAt) || Date.now(),

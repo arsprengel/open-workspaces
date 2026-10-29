@@ -2,7 +2,7 @@
 // requires, so events wake the service worker up correctly.
 
 import * as actions from './actions.js';
-import { cancelSnapshot, lastFocusedNormalWindow, scheduleSnapshot } from './tabs.js';
+import { cancelSnapshot, ensureHomeTab, isBusy, lastFocusedNormalWindow, scheduleSnapshot, syncHomeTabs } from './tabs.js';
 import { getState, setWindowWorkspace, workspaceForWindow } from './store.js';
 import { SUSPEND_ALARM, runAutoSuspend, suspendOtherTabs, suspendTabs, syncSuspendAlarm } from './suspender.js';
 import { handleMenuClick, scheduleMenuRebuild } from './menus.js';
@@ -76,6 +76,15 @@ chrome.windows.onCreated.addListener((win) => {
   for (const delay of [1000, 4000]) {
     setTimeout(() => actions.reconcileWindows({ onlyWindowId: win.id }).catch((err) => console.warn('[open-workspaces] reconcile', err)), delay);
   }
+  // Every window gets the home tab (extension pages can't open in incognito). A restored window may bring
+  // its own, so check again later to drop duplicates.
+  if (win.incognito) return;
+  for (const delay of [400, 4000]) {
+    setTimeout(async () => {
+      if (isBusy(win.id) || !(await getState()).settings.homeTab) return;
+      ensureHomeTab(win.id);
+    }, delay);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -90,6 +99,7 @@ async function applyActionBehavior() {
 
 async function boot() {
   await actions.reconcileWindows().catch((err) => console.warn('[open-workspaces] reconcile', err));
+  if ((await getState()).settings.homeTab) await syncHomeTabs(true).catch((err) => console.warn('[open-workspaces] home tabs', err));
   await applyActionBehavior();
   await syncSuspendAlarm();
   scheduleMenuRebuild();
@@ -109,6 +119,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     applyActionBehavior();
     syncSuspendAlarm();
   }
+  if (before && after && before.settings?.homeTab !== after.settings?.homeTab) syncHomeTabs(after.settings.homeTab !== false);
   const menuKey = (s) => JSON.stringify((s?.order ?? []).map((id) => [id, s.workspaces[id]?.name, s.workspaces[id]?.icon, s.workspaces[id]?.archived]));
   if (menuKey(before) !== menuKey(after)) scheduleMenuRebuild();
 });

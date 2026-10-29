@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  applyImport, buildExport, emptyState, isExcluded, isNewTabUrl, makeWorkspace, matchWindows,
-  normalizeState, overlapScore, parseExclusions, search, serializeTab,
+  applyImport, buildExport, cleanImage, emptyState, isExcluded, isHomeUrl, isNewTabUrl, isWindowFixture, makeWorkspace, matchWindows,
+  normalizeState, overlapScore, parseExclusions, realTabCount, search, serializeTab,
 } from '../extension/src/shared/model.js';
 
 test('isNewTabUrl recognises blank and new-tab pages', () => {
@@ -105,4 +105,48 @@ test('import merge adds copies with new ids, replace swaps everything', () => {
   assert.deepEqual(replaced.order, [b.id]);
 
   assert.throws(() => applyImport(current, { hello: 'world' }), /invalid-file/);
+});
+
+const HOME = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/src/home/home.html';
+
+test('isHomeUrl recognises the pinned home tab of the extension', () => {
+  assert.equal(isHomeUrl(HOME), true);
+  assert.equal(isHomeUrl(`${HOME}?x=1`), true);
+  for (const url of ['', undefined, 'https://mail.google.com/', 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/src/dashboard/dashboard.html']) {
+    assert.equal(isHomeUrl(url), false, url);
+  }
+});
+
+test('window fixtures: the home tab always, pinned tabs only when they are kept across workspaces', () => {
+  const home = { url: HOME, pinned: true };
+  const gmail = { url: 'https://mail.google.com/', pinned: true };
+  const page = { url: 'https://example.com/', pinned: false };
+  assert.equal(isWindowFixture(home, false), true);
+  assert.equal(isWindowFixture(gmail, true), true);
+  assert.equal(isWindowFixture(gmail, false), false);
+  assert.equal(isWindowFixture(page, true), false);
+  assert.equal(isWindowFixture({ url: '', pendingUrl: HOME }, false), true, 'pending URL counts');
+});
+
+test('saved tabs never keep the home tab', () => {
+  const ws = makeWorkspace({ tabs: [{ url: HOME, pinned: true }, { url: 'https://a.com' }] });
+  assert.deepEqual(ws.tabs.map((t) => t.url), ['https://a.com']);
+  assert.equal(realTabCount(ws), 1);
+});
+
+test('workspace images: only small data:image URLs survive', () => {
+  const png = `data:image/png;base64,${'A'.repeat(100)}`;
+  assert.equal(cleanImage(png), png);
+  assert.equal(cleanImage('https://evil.example/x.png'), '');
+  assert.equal(cleanImage('data:text/html;base64,AAAA'), '');
+  assert.equal(cleanImage(`data:image/png;base64,${'A'.repeat(400_000)}`), '');
+  assert.equal(cleanImage(42), '');
+  assert.equal(makeWorkspace({ name: 'A' }).image, '');
+  assert.equal(normalizeState({ workspaces: { x: { id: 'x', image: png } } }).workspaces.x.image, png);
+});
+
+test('new settings default on: home tab and pinned tabs kept across workspaces', () => {
+  const s = normalizeState({}).settings;
+  assert.equal(s.homeTab, true);
+  assert.equal(s.keepPinned, true);
 });
