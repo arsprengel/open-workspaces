@@ -66,4 +66,4 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export const MSG = 'ow:call';
 
 /** Update this when the repository moves. */
-export const REPO_URL = 'https://github.com/open-workspaces/open-workspaces';
+export const REPO_URL = 'https://github.com/arsprengel/open-workspaces';
