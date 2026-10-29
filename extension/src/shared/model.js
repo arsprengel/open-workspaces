@@ -1,6 +1,6 @@
 // Pure data helpers. No chrome.* calls in here, so everything is unit-testable in Node.
 
-import { APP_ID, COLORS, DEFAULT_SETTINGS, SCHEMA_VERSION } from './constants.js';
+import { APP_ID, COLORS, DEFAULT_SETTINGS, PIN_SITES, SCHEMA_VERSION } from './constants.js';
 
 export function uid() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -33,6 +33,33 @@ export function isHomeUrl(url) {
  */
 export function isWindowFixture(tab, keepPinned) {
   return isHomeUrl(tab.pendingUrl || tab.url) || (!!keepPinned && !!tab.pinned);
+}
+
+/** The always-on site (see PIN_SITES) a URL belongs to, or null. */
+export function suggestedSite(url) {
+  let u;
+  try {
+    u = new URL(str(url));
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.toLowerCase();
+  const onPath = (p) => u.pathname === p || u.pathname.startsWith(`${p}/`);
+  return PIN_SITES.find((site) => site.hosts.includes(host) && (!site.paths || site.paths.some(onPath))) ?? null;
+}
+
+/**
+ * The site to offer pinning for when `tab` shows an always-on site, else null. Only while pinned tabs
+ * stay across workspaces, once per site per browser session (`asked`), never for a site the user
+ * muted or that is already pinned in this window.
+ */
+export function pinSuggestionFor({ tab, windowTabs, settings, asked }) {
+  if (!settings.keepPinned || !settings.pinSuggestions || tab.pinned || tab.incognito) return null;
+  const site = suggestedSite(tab.url);
+  if (!site || asked[site.id] || settings.pinMuted?.[site.id]) return null;
+  if (windowTabs.some((t) => t.pinned && t.id !== tab.id && suggestedSite(t.url)?.id === site.id)) return null;
+  return site;
 }
 
 /** Strips the hash so the same page with a different anchor still matches. */

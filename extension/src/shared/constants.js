@@ -9,8 +9,30 @@ export const STATE_KEY = 'state';
 export const WINDOW_MAP_KEY = 'windowMap';
 /** chrome.storage.session key used to tell the popup which mode to open in (search, move tab, new...). */
 export const POPUP_INTENT_KEY = 'popupIntent';
+/** chrome.storage.session key: sites already offered for pinning this browser session (siteId -> true). */
+export const PIN_ASKED_KEY = 'pinAsked';
 /** The page shown in the pinned "home" tab at the left of every window. */
 export const HOME_PAGE = 'src/home/home.html';
+
+/**
+ * Always-on sites (mail, chat, calendar, music) that belong next to the home tab rather than in one
+ * workspace: opening one in an unpinned tab offers to pin it. `paths` limits a host to its app pages.
+ */
+export const PIN_SITES = [
+  { id: 'gmail', name: 'Gmail', hosts: ['mail.google.com'] },
+  { id: 'calendar', name: 'Google Calendar', hosts: ['calendar.google.com'] },
+  { id: 'googlechat', name: 'Google Chat', hosts: ['chat.google.com'] },
+  { id: 'outlook', name: 'Outlook', hosts: ['outlook.office.com', 'outlook.office365.com', 'outlook.live.com'] },
+  { id: 'protonmail', name: 'Proton Mail', hosts: ['mail.proton.me'] },
+  { id: 'yahoomail', name: 'Yahoo Mail', hosts: ['mail.yahoo.com'] },
+  { id: 'whatsapp', name: 'WhatsApp', hosts: ['web.whatsapp.com'] },
+  { id: 'telegram', name: 'Telegram', hosts: ['web.telegram.org'] },
+  { id: 'slack', name: 'Slack', hosts: ['app.slack.com'] },
+  { id: 'teams', name: 'Microsoft Teams', hosts: ['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft'] },
+  { id: 'discord', name: 'Discord', hosts: ['discord.com'], paths: ['/channels', '/app'] },
+  { id: 'spotify', name: 'Spotify', hosts: ['open.spotify.com'] },
+  { id: 'youtubemusic', name: 'YouTube Music', hosts: ['music.youtube.com'] },
+];
 
 export const COLORS = [
   '#6366f1', // indigo
@@ -46,6 +68,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   homeTab: true,
   /** Tabs pinned in the browser belong to the window: they stay open when switching workspaces. */
   keepPinned: true,
+  /** Offer to pin always-on sites (PIN_SITES) when one opens in an unpinned tab. */
+  pinSuggestions: true,
+  /** Sites the user asked never to be offered again (siteId -> true). */
+  pinMuted: {},
   /** Which sections a workspace shows. */
   views: { tabs: true, resources: true, notes: true, tasks: true },
   suspend: {

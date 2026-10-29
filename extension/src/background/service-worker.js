@@ -6,6 +6,7 @@ import { cancelSnapshot, ensureHomeTab, isBusy, lastFocusedNormalWindow, schedul
 import { getState, setWindowWorkspace, workspaceForWindow } from './store.js';
 import { SUSPEND_ALARM, runAutoSuspend, suspendOtherTabs, suspendTabs, syncSuspendAlarm } from './suspender.js';
 import { handleMenuClick, scheduleMenuRebuild } from './menus.js';
+import { maybeSuggestPin, pinTab } from './pin-suggest.js';
 import { MSG, POPUP_INTENT_KEY, STATE_KEY } from '../shared/constants.js';
 
 // ---------------------------------------------------------------------------
@@ -15,6 +16,7 @@ const handlers = {
   ...actions,
   suspendTabs,
   suspendOtherTabs,
+  pinTab,
   getCurrentWorkspace: async ({ windowId }) => ({ id: await workspaceForWindow(windowId) }),
 };
 
@@ -63,6 +65,14 @@ if (chrome.tabGroups) {
     chrome.tabGroups[event].addListener((group) => scheduleSnapshot(group.windowId));
   }
 }
+
+// Opening Gmail, Slack and other always-on sites offers to pin them (see pin-suggest.js).
+chrome.tabs.onUpdated.addListener((_id, info, tab) => {
+  if (info.status === 'complete') maybeSuggestPin(tab);
+});
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  chrome.tabs.get(tabId).then(maybeSuggestPin, () => {});
+});
 
 chrome.windows.onRemoved.addListener((windowId) => {
   cancelSnapshot(windowId);

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyImport, buildExport, cleanImage, emptyState, isExcluded, isHomeUrl, isNewTabUrl, isWindowFixture, makeWorkspace, matchWindows,
-  normalizeState, overlapScore, parseExclusions, realTabCount, search, serializeTab,
+  normalizeState, overlapScore, parseExclusions, pinSuggestionFor, realTabCount, search, serializeTab, suggestedSite,
 } from '../extension/src/shared/model.js';
 
 test('isNewTabUrl recognises blank and new-tab pages', () => {
@@ -149,4 +149,57 @@ test('new settings default on: home tab and pinned tabs kept across workspaces',
   const s = normalizeState({}).settings;
   assert.equal(s.homeTab, true);
   assert.equal(s.keepPinned, true);
+});
+
+test('suggestedSite knows the always-on sites and nothing else', () => {
+  const cases = {
+    'https://mail.google.com/mail/u/0/#inbox': 'gmail',
+    'https://calendar.google.com/calendar/u/0/r': 'calendar',
+    'https://chat.google.com/': 'googlechat',
+    'https://outlook.office.com/mail/': 'outlook',
+    'https://outlook.live.com/calendar/0/view/month': 'outlook',
+    'https://outlook.office365.com/mail/inbox': 'outlook',
+    'https://mail.proton.me/u/0/inbox': 'protonmail',
+    'https://mail.yahoo.com/d/folders/1': 'yahoomail',
+    'https://web.whatsapp.com/': 'whatsapp',
+    'https://web.telegram.org/a/': 'telegram',
+    'https://app.slack.com/client/T0/C0': 'slack',
+    'https://teams.microsoft.com/v2/': 'teams',
+    'https://teams.live.com/v2/': 'teams',
+    'https://discord.com/channels/@me': 'discord',
+    'https://open.spotify.com/': 'spotify',
+    'https://music.youtube.com/': 'youtubemusic',
+  };
+  for (const [url, id] of Object.entries(cases)) assert.equal(suggestedSite(url)?.id, id, url);
+  for (const url of [
+    'https://www.google.com/', 'https://discord.com/', 'https://www.youtube.com/watch?v=1', 'https://slack.com/',
+    'https://mail.google.com.evil.example/', 'https://notmail.google.com/', 'chrome://newtab/', '', undefined,
+  ]) assert.equal(suggestedSite(url), null, String(url));
+  assert.equal(suggestedSite('https://mail.google.com/').name, 'Gmail');
+});
+
+test('pinSuggestionFor asks once, only for unpinned always-on sites when pinned tabs stay', () => {
+  const settings = normalizeState({}).settings;
+  const gmail = { id: 1, url: 'https://mail.google.com/mail/u/0/', pinned: false, incognito: false };
+  const other = { id: 2, url: 'https://example.com/', pinned: false };
+  const ask = (over = {}) => pinSuggestionFor({ tab: gmail, windowTabs: [gmail, other], settings, asked: {}, ...over });
+
+  assert.equal(ask()?.id, 'gmail');
+  assert.equal(ask({ tab: other, windowTabs: [other] }), null, 'not an always-on site');
+  assert.equal(ask({ tab: { ...gmail, pinned: true } }), null, 'already pinned');
+  assert.equal(ask({ tab: { ...gmail, incognito: true } }), null, 'incognito');
+  assert.equal(ask({ asked: { gmail: true } }), null, 'already asked this session');
+  assert.equal(ask({ settings: { ...settings, pinMuted: { gmail: true } } }), null, 'muted for this site');
+  assert.equal(ask({ settings: { ...settings, pinMuted: { gmail: false } } })?.id, 'gmail', 'unmuted again');
+  assert.equal(ask({ settings: { ...settings, pinSuggestions: false } }), null, 'suggestions off');
+  assert.equal(ask({ settings: { ...settings, keepPinned: false } }), null, 'pinning would not keep it across workspaces');
+  const pinnedGmail = { id: 3, url: 'https://mail.google.com/mail/u/1/', pinned: true };
+  assert.equal(ask({ windowTabs: [gmail, pinnedGmail] }), null, 'the site is already pinned in this window');
+});
+
+test('pin suggestions default on with nothing muted', () => {
+  const s = normalizeState({}).settings;
+  assert.equal(s.pinSuggestions, true);
+  assert.deepEqual(s.pinMuted, {});
+  assert.deepEqual(normalizeState({ settings: { pinMuted: { slack: true } } }).settings.pinMuted, { slack: true });
 });

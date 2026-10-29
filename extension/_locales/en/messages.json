@@ -622,5 +622,50 @@
   },
   "windowTabs": {
     "message": "Tabs in this window"
+  },
+  "pinAskQuestion": {
+    "message": "Keep $SITE$ pinned in every workspace?",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinAskDesc": {
+    "message": "The tab moves to the left of the tab strip and stays open when you switch workspaces."
+  },
+  "pinAskYes": {
+    "message": "Pin tab"
+  },
+  "pinAskLater": {
+    "message": "Not now"
+  },
+  "pinAskNever": {
+    "message": "Don't ask again for $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinSuggestionsSetting": {
+    "message": "Offer to pin always-on sites"
+  },
+  "pinSuggestionsDesc": {
+    "message": "When you open Gmail, Outlook, WhatsApp, Slack, Teams, Discord, Spotify and similar sites in a tab that is not pinned, asks once per browser session whether to keep them pinned in every workspace."
+  },
+  "pinMutedList": {
+    "message": "Not asked again: $SITES$",
+    "placeholders": {
+      "sites": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinMutedReset": {
+    "message": "Ask again"
+  },
+  "site_calendar": {
+    "message": "Google Calendar"
   }
 }
