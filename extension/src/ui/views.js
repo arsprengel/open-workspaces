@@ -48,11 +48,23 @@ export function EditWorkspaceModal({ ws, onClose }) {
   />`;
 }
 
-export function NewWorkspaceModal({ store, fromWindowId = null, open = true, onClose, onCreated }) {
+/**
+ * `uploadInTab`: for the toolbar popup, where the file chooser would close the popup. Choosing to upload an
+ * image there saves the workspace as it is and continues in the dashboard's editor.
+ */
+export function NewWorkspaceModal({ store, fromWindowId = null, open = true, uploadInTab = false, onClose, onCreated }) {
+  const continueInTab = async (draft) => {
+    const res = await run(call('createWorkspace', { ...draft, fromWindowId, open: false, windowId: store.windowId }));
+    if (!res) return;
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`src/dashboard/dashboard.html#/ws/${res.id}/edit`) });
+    onClose();
+    onCreated?.(res.id);
+  };
   return html`<${WorkspaceForm}
     title=${fromWindowId != null ? t('saveWindowAsWorkspace') : t('newWorkspace')}
     submitLabel=${fromWindowId != null ? t('save') : t('create')}
     onClose=${onClose}
+    onPickImageElsewhere=${uploadInTab ? continueInTab : undefined}
     onSubmit=${async (data) => {
       const res = await run(call('createWorkspace', { ...data, fromWindowId, open: fromWindowId == null && open, windowId: store.windowId }));
       onClose();

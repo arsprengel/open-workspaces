@@ -341,9 +341,10 @@ button.sw-field:hover .sw-edit, button.sw-field:focus-visible .sw-edit { opacity
   box-shadow: var(--shadow-sm);
   cursor: pointer;
   outline: none;
-  transition: translate 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  top: 0;
+  transition: top 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
-.ws-chip:hover { translate: 0 -2px; box-shadow: var(--shadow-md); }
+.ws-chip:hover { top: -2px; box-shadow: var(--shadow-md); }
 .ws-chip:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
 .ws-chip .sw-field { height: 54px; border-radius: var(--radius-card) var(--radius-card) 0 0; }
 .ws-chip .sw-glyph { font-size: 24px; filter: none; }
@@ -386,7 +387,7 @@ button.sw-field:hover .sw-edit, button.sw-field:focus-visible .sw-edit { opacity
   font: inherit;
   font-weight: 600;
 }
-.ws-chip.add:hover { color: var(--text); border-color: var(--muted); translate: none; box-shadow: none; }
+.ws-chip.add:hover { color: var(--text); border-color: var(--muted); top: 0; box-shadow: none; }
 .ws-chip.add .ico { width: 20px; height: 20px; }
 
 /* ------------------------------------------------------------------ rows / lists */
@@ -550,12 +551,12 @@ button.section-label:hover { color: var(--text); }
 /* ------------------------------------------------------------------ menu (popover) */
 .menu-wrap { position: relative; display: inline-flex; }
 .menu {
-  position: absolute;
-  z-index: 50;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
+  z-index: 150;
+  top: 0;
+  left: 0;
   min-width: 210px;
-  max-height: 360px;
+  max-height: min(360px, calc(100vh - 16px));
   overflow: auto;
   padding: 4px;
   border-radius: var(--radius-card);
@@ -564,8 +565,6 @@ button.section-label:hover { color: var(--text); }
   transform-origin: top right;
   animation: menu-in 0.14s var(--ease);
 }
-.menu.left { left: 0; right: auto; transform-origin: top left; }
-.menu.up { top: auto; bottom: calc(100% + 6px); transform-origin: bottom right; }
 .menu-item {
   display: flex;
   align-items: center;
@@ -730,5 +729,5 @@ button.section-label:hover { color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .btn:active, .icon-btn:active, .pin:active, .swatch:active { scale: none; }
-  .ws-chip:hover { translate: none; }
+  .ws-chip:hover { top: 0; }
 }

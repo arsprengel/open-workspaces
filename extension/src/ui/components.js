@@ -1,6 +1,6 @@
 // Small reusable UI building blocks (Preact + htm, no build step).
 
-import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js';
+import { html, useEffect, useLayoutEffect, useRef, useState } from '../vendor/preact-htm.js';
 import { COLORS, EMOJIS } from '../shared/constants.js';
 import { faviconUrl, t } from './api.js';
 
@@ -102,6 +102,41 @@ export function Badge({ ws, lg = false, size = lg ? 'lg' : '' }) {
   return html`<span class=${cls} style=${swatchStyle(ws)} aria-hidden="true">${content}</span>`;
 }
 
+/**
+ * The workspace drawn as a tiny swatch for the home tab's favicon, so the pinned tab at the left of
+ * the tab strip shows which workspace this window is in.
+ */
+export async function workspaceFavicon(ws) {
+  const size = 64;
+  const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size });
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = ws.color || '#64748b';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, size, size, 14);
+  ctx.fill();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (ws.image) {
+    const img = new Image();
+    img.src = ws.image;
+    await img.decode().catch(() => {});
+    const box = size * 0.74;
+    const scale = Math.min(box / (img.naturalWidth || box), box / (img.naturalHeight || box));
+    const w = (img.naturalWidth || box) * scale;
+    const h = (img.naturalHeight || box) * scale;
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+  } else if (ws.icon) {
+    ctx.font = `${size * 0.66}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+    ctx.fillText(ws.icon, size / 2, size / 2 + size * 0.04);
+  } else {
+    await document.fonts?.ready;
+    ctx.fillStyle = readableOn(ws.color);
+    ctx.font = `800 ${size * 0.58}px Archivo, system-ui, sans-serif`;
+    ctx.fillText(initialOf(ws), size / 2, size / 2 + size * 0.03);
+  }
+  return canvas.toDataURL('image/png');
+}
+
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 /** Reads an uploaded image (PNG, ICO, SVG, JPG, WebP...) and returns it as a small square PNG data URL. */
@@ -139,23 +174,47 @@ export const GROUP_COLORS = {
 
 export function Menu({ icon = 'more', title, align = 'right', up = false, sm = false, children, trigger }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
   const ref = useRef(null);
+  const menuRef = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => !ref.current?.contains(e.target) && setOpen(false);
-    const onKey = (e) => e.key === 'Escape' && setOpen(false);
+    const close = () => setOpen(false);
+    const onDown = (e) => !ref.current?.contains(e.target) && close();
+    const onKey = (e) => e.key === 'Escape' && close();
+    const onScroll = (e) => !menuRef.current?.contains(e.target) && close();
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
+    addEventListener('scroll', onScroll, true);
+    addEventListener('resize', close);
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
+      removeEventListener('scroll', onScroll, true);
+      removeEventListener('resize', close);
     };
+  }, [open]);
+  // The menu is fixed to the viewport, so scrolling columns can't clip it, and it's kept on screen.
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    const anchor = ref.current.getBoundingClientRect();
+    const { offsetWidth: w, offsetHeight: h } = menuRef.current;
+    const edge = 8;
+    const gap = 6;
+    const left = Math.max(edge, Math.min(align === 'left' ? anchor.left : anchor.right - w, innerWidth - w - edge));
+    const below = anchor.bottom + gap;
+    const above = anchor.top - gap - h;
+    const top = (up || below + h > innerHeight - edge) && above >= edge ? above : Math.max(edge, Math.min(below, innerHeight - h - edge));
+    setPos({ top, left });
   }, [open]);
   const toggle = () => setOpen((o) => !o);
   return html`<div class="menu-wrap" ref=${ref} onClick=${(e) => e.stopPropagation()}>
     ${trigger ? trigger(toggle) : html`<${IconButton} icon=${icon} title=${title ?? t('more')} sm=${sm} onClick=${toggle} aria-expanded=${open} />`}
     ${open &&
-    html`<div class=${`menu${align === 'left' ? ' left' : ''}${up ? ' up' : ''}`} role="menu" onClick=${() => setOpen(false)}>
+    html`<div class="menu" ref=${menuRef} role="menu" style=${pos ? `top:${pos.top}px;left:${pos.left}px` : 'visibility:hidden'} onClick=${() => setOpen(false)}>
       ${typeof children === 'function' ? children() : children}
     </div>`}
   </div>`;
@@ -187,8 +246,11 @@ export function Modal({ title, onClose, children }) {
   </div>`;
 }
 
-/** Create / edit a workspace: name, color and an icon (uploaded image, emoji or initial). */
-export function WorkspaceForm({ initial = {}, title, submitLabel, onSubmit, onClose }) {
+/**
+ * Create / edit a workspace: name, color and an icon (uploaded image, emoji or initial).
+ * `onPickImageElsewhere` replaces the file chooser where it can't work (the toolbar popup closes when it opens).
+ */
+export function WorkspaceForm({ initial = {}, title, submitLabel, onSubmit, onClose, onPickImageElsewhere }) {
   const [name, setName] = useState(initial.name ?? '');
   const [icon, setIcon] = useState(initial.icon ?? '');
   const [image, setImage] = useState(initial.image ?? '');
@@ -216,6 +278,7 @@ export function WorkspaceForm({ initial = {}, title, submitLabel, onSubmit, onCl
     e.preventDefault();
     onSubmit({ name: name.trim(), icon, image, color });
   };
+  const pickImage = () => (onPickImageElsewhere ? onPickImageElsewhere({ name: name.trim(), icon, color }) : fileRef.current.click());
   return html`<${Modal} title=${title} onClose=${onClose}>
     <form onSubmit=${submit}>
       <div class="identity">
@@ -241,10 +304,10 @@ export function WorkspaceForm({ initial = {}, title, submitLabel, onSubmit, onCl
       <div class="field">
         <div class="field-row">
           <span class="field-label">${t('icon')}</span>
-          <button type="button" class="btn sm ghost" title=${t('uploadImageHint')} onClick=${() => fileRef.current.click()}><${Icon} name="imageUp" />${t('uploadImage')}</button>
+          <button type="button" class="btn sm ghost" title=${t('uploadImageHint')} onClick=${pickImage}><${Icon} name="imageUp" />${t('uploadImage')}</button>
         </div>
         <div class="emoji-grid">
-          ${image && html`<button type="button" class="upload" aria-pressed="true" title=${t('uploadImage')} onClick=${() => fileRef.current.click()}><img src=${image} alt="" /></button>`}
+          ${image && html`<button type="button" class="upload" aria-pressed="true" title=${t('uploadImage')} onClick=${pickImage}><img src=${image} alt="" /></button>`}
           <button type="button" class="letter" aria-pressed=${!icon && !image} title=${t('noIcon')} onClick=${() => pickIcon('')}>Aa</button>
           ${EMOJIS.map((em) => html`<button type="button" aria-pressed=${em === icon && !image} onClick=${() => pickIcon(em)}>${em}</button>`)}
         </div>

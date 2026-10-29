@@ -160,6 +160,15 @@ async function scenario() {
   await call('updateSettings', { patch: { homeTab: true } });
   check('home tab back when turned on', await waitFor(async () => (await homesOf(win.id)).length === 1));
 
+  // 4d. The home tab's icon is the window's workspace and follows it when switching
+  const homeIcon = async () => (await homesOf(win.id))[0]?.favIconUrl ?? '';
+  check('home tab icon is the workspace', await waitFor(async () => (await homeIcon()).startsWith('data:image/png')), await homeIcon());
+  const iconA = await homeIcon();
+  await call('openWorkspace', { id: B, windowId: win.id });
+  check('home tab icon follows the workspace', await waitFor(async () => (await homeIcon()).startsWith('data:image/png') && (await homeIcon()) !== iconA));
+  await call('openWorkspace', { id: A, windowId: win.id });
+  check('home tab icon comes back', await waitFor(async () => (await homeIcon()) === iconA));
+
   // 5. Close A: its window goes away, tabs stay saved
   await call('closeWorkspace', { id: A });
   await sleep(400);
@@ -238,8 +247,99 @@ async function scenario() {
   s = await state();
   check('nested settings merge', s.settings.suspend.mode === 'auto' && s.settings.suspend.maxTabs === 3 && s.settings.suspend.neverPinned === true && s.settings.theme === 'dark');
   check('auto-suspend alarm created', !!(await chrome.alarms.get('ow-auto-suspend')));
+  await call('updateSettings', { patch: { suspend: { mode: 'manual' } } });
+
+  // 14. Dragging a tab into another workspace's window moves it to that workspace
+  const w1 = await chrome.windows.create({ url: ['https://example.com/?w1a', 'https://example.com/?w1b'], focused: false });
+  const w2 = await chrome.windows.create({ url: ['https://example.com/?w2a'], focused: false });
+  await sleep(700);
+  const { id: D1 } = await call('createWorkspace', { name: 'Drag from', fromWindowId: w1.id });
+  const { id: D2 } = await call('createWorkspace', { name: 'Drag to', fromWindowId: w2.id });
+  const [dragged] = (await tabsOf(w1.id)).filter((t) => (t.pendingUrl || t.url).includes('w1b'));
+  await chrome.tabs.move(dragged.id, { windowId: w2.id, index: -1 });
+  check('tab dragged to another window joins its workspace', await waitFor(async () => {
+    const s = await state();
+    return s.workspaces[D2].tabs.some((t) => t.url.includes('w1b')) && !s.workspaces[D1].tabs.some((t) => t.url.includes('w1b'));
+  }));
 
   return checks;
+}
+
+/** Uploads an image through the real workspace form (file input -> preview -> Save) and checks it was stored. */
+async function uploadCheck(cdp, file) {
+  const wsId = await cdp.eval(`(async () => {
+    const { state } = await chrome.storage.local.get('state');
+    const id = state.order[0];
+    location.hash = '#/ws/' + id;
+    return id;
+  })()`);
+  await sleep(700);
+  await cdp.eval(`document.querySelector('.sidebar .sw-field').click()`);
+  await sleep(300);
+  const { root } = await cdp.send('DOM.getDocument', { depth: -1 });
+  const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '.modal input[type=file]' });
+  await cdp.send('DOM.setFileInputFiles', { nodeId, files: [file] });
+  await sleep(800);
+  const preview = await cdp.eval(`!!document.querySelector('.identity .sw-field img')`);
+  await cdp.eval(`document.querySelector('.modal button[type=submit]').click()`);
+  await sleep(800);
+  const stored = await cdp.eval(`chrome.storage.local.get('state').then(({ state }) => state.workspaces[${JSON.stringify(wsId)}].image || '')`);
+  const name = file.split('.').pop().toUpperCase();
+  return [
+    { name: `${name} upload shows in the form preview`, ok: preview, detail: '' },
+    { name: `${name} upload is saved to the workspace`, ok: stored.startsWith('data:image/png;base64,'), detail: JSON.stringify(stored.slice(0, 40)) },
+  ];
+}
+
+/**
+ * The toolbar popup closes as soon as the system file chooser takes focus, so "Upload image" there must
+ * save the workspace and continue in a full page editor instead of opening the chooser.
+ */
+async function popupUploadCheck(port, cdp, dash) {
+  await cdp.send('Page.reload');
+  await sleep(900);
+  await cdp.eval(`document.querySelector('.popup-foot .btn').click()`);
+  await sleep(300);
+  await cdp.eval(`(() => { const i = document.querySelector('#ws-name'); i.focus(); document.execCommand('insertText', false, 'From popup'); })()`);
+  // Fire and forget: the popup closes itself once the editor opens, so no reply would come back.
+  cdp.send('Runtime.evaluate', { expression: `document.querySelector('.modal .field-row .btn').click()` }).catch(() => {});
+  await sleep(1500);
+  const id = await dash.eval(`chrome.storage.local.get('state').then(({ state }) => Object.values(state.workspaces).find((w) => w.name === 'From popup')?.id ?? null)`).catch(() => null);
+  const editor = id && (await getJson(port, '/json/list')).find((x) => x.url.endsWith(`dashboard.html#/ws/${id}/edit`));
+  let formOpen = false;
+  if (editor) {
+    const page = new Cdp(editor.webSocketDebuggerUrl);
+    await page.ready;
+    await sleep(600);
+    formOpen = await page.eval(`!!document.querySelector('.modal input[type=file]')`);
+    page.close();
+  }
+  return [
+    { name: 'popup upload saves the new workspace', ok: !!id, detail: '' },
+    { name: 'popup upload continues in the full page editor', ok: !!editor && formOpen, detail: JSON.stringify({ editor: !!editor, formOpen }) },
+  ];
+}
+
+/** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
+function dropOnCardCheck(cdp) {
+  return cdp.eval(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const { state } = await chrome.storage.local.get('state');
+    const { windowMap } = await chrome.storage.session.get('windowMap');
+    const byName = (n) => Object.values(state.workspaces).find((w) => w.name === n);
+    const winOf = (id) => Number(Object.keys(windowMap).find((k) => windowMap[k] === id));
+    const target = byName('Drag from');
+    const tab = await chrome.tabs.create({ windowId: winOf(byName('Drag to').id), url: 'https://example.com/?dropped', active: false });
+    location.hash = '#/ws/' + byName('Drag to').id;
+    await sleep(900);
+    const card = [...document.querySelectorAll('.ws-chip')].find((c) => c.title === target.name);
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('application/x-ow-tab', JSON.stringify({ tabId: tab.id, url: 'https://example.com/?dropped' }));
+    for (const type of ['dragover', 'drop']) card.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true }));
+    await sleep(1200);
+    const moved = await chrome.tabs.get(tab.id).catch(() => null);
+    return [{ name: 'tab dropped on a workspace card moves there', ok: moved?.windowId === winOf(target.id), detail: '' }];
+  })()`);
 }
 
 /** Demo data used for README screenshots (SCREENSHOTS=1). */
@@ -354,6 +454,8 @@ async function captureScreens(port, extId, dir, dash, full) {
     { name: 'sidepanel-resources', path: 'sidepanel/sidepanel.html', w: 400, h: 800, view: 'resources' },
     { name: 'form-1440', home: demoWin, w: 1440, h: 900, click: '.sidebar .sw-field' },
     { name: 'menu-1440', home: demoWin, w: 1440, h: 900, click: '.sidebar .sw-head .icon-btn' },
+    { name: 'chip-menu-1440', home: demoWin, w: 1440, h: 900, click: '.rack .ws-chip:nth-child(2) .chip-menu .icon-btn' },
+    { name: 'chip-menu-375', home: demoWin, w: 375, h: 812, click: '.rack .ws-chip:nth-child(1) .chip-menu .icon-btn' },
   ];
 
   for (const dark of [false, true]) {
@@ -387,6 +489,30 @@ async function captureScreens(port, extId, dir, dash, full) {
       cdp.close();
       await page.close();
     }
+  }
+  if (full) {
+    // The home tab icon for every demo workspace, side by side at tab-strip sizes.
+    const page = await homeOf(demoWin);
+    const sheet = await page.cdp.eval(`(async () => {
+      const { workspaceFavicon } = await import('../ui/components.js');
+      const { state } = await chrome.storage.local.get('state');
+      const icons = await Promise.all(state.order.map((id) => workspaceFavicon(state.workspaces[id])));
+      const canvas = Object.assign(document.createElement('canvas'), { width: 40 + icons.length * 120, height: 140 });
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#dee1e6';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const [i, src] of icons.entries()) {
+        const img = new Image();
+        img.src = src;
+        await img.decode();
+        ctx.drawImage(img, 20 + i * 120, 20, 64, 64);
+        ctx.drawImage(img, 20 + i * 120 + 76, 20, 32, 32);
+        ctx.drawImage(img, 20 + i * 120 + 76, 64, 16, 16);
+      }
+      return canvas.toDataURL('image/png');
+    })()`);
+    writeFileSync(join(dir, 'home-tab-icons.png'), Buffer.from(sheet.split(',')[1], 'base64'));
+    page.cdp.close();
   }
   console.log(`screenshots saved to ${dir}`);
 }
@@ -449,6 +575,8 @@ async function main() {
 
     const checks = await pages.dashboard.eval(`(${scenario.toString()})()`);
     await sleep(800);
+    checks.push(...(await dropOnCardCheck(pages.dashboard)));
+    for (const file of ['icon.png', 'icon.ico']) checks.push(...(await uploadCheck(pages.dashboard, resolve(import.meta.dirname, '..', 'tests', 'fixtures', file))));
 
     for (const name of ['dashboard', 'popup', 'sidepanel']) {
       const rendered = await pages[name].eval(`document.getElementById('app').children.length > 0 && document.body.innerText.length > 20`);
@@ -456,6 +584,7 @@ async function main() {
     }
     const dashText = await pages.dashboard.eval('document.body.innerText');
     checks.push({ name: 'dashboard lists workspaces', ok: dashText.includes('Alpha') && dashText.includes('Beta'), detail: dashText.slice(0, 200) });
+    checks.push(...(await popupUploadCheck(port, pages.popup, pages.dashboard)));
 
     if (process.env.DEBUG) console.log(swCdp.events.filter((e) => e.method === 'Runtime.consoleAPICalled').map((e) => e.params.args.map((a) => a.value ?? a.description).join(' ')));
     for (const [name, cdp] of [...Object.entries(pages), ['service-worker', swCdp]]) {

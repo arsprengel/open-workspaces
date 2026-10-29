@@ -193,6 +193,7 @@ function App() {
     ${creating &&
     html`<${NewWorkspaceModal}
       store=${store}
+      uploadInTab
       fromWindowId=${creating === 'window' ? store.windowId : null}
       onClose=${() => setCreating(false)}
       onCreated=${async (id) => {

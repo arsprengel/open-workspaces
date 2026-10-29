@@ -5,9 +5,9 @@
 import { html, render, useEffect, useState } from '../vendor/preact-htm.js';
 import { isHomeUrl, isNewTabUrl, isWindowFixture, orderedWorkspaces } from '../shared/model.js';
 import { call, t, useStore, useTheme, useUnsavedWindows, useWindowTabs, wsLabel } from '../ui/api.js';
-import { Favicon, Icon, ToastHost, run } from '../ui/components.js';
+import { Favicon, Icon, ToastHost, run, workspaceFavicon } from '../ui/components.js';
 import {
-  NewWorkspaceModal, PinnedStrip, SettingsView, UnsavedSwatch, UnsavedWindowList, WorkspaceDetail, WorkspaceList, WorkspaceSwatch,
+  EditWorkspaceModal, NewWorkspaceModal, PinnedStrip, SettingsView, UnsavedSwatch, UnsavedWindowList, WorkspaceDetail, WorkspaceList, WorkspaceSwatch,
 } from '../ui/views.js';
 
 import { REPO_URL } from '../shared/constants.js';
@@ -17,8 +17,8 @@ const dashboardUrl = (hash = '') => chrome.runtime.getURL(`src/dashboard/dashboa
 
 function useRoute() {
   const parse = () => {
-    const [, view = '', id = ''] = location.hash.split('/');
-    return { view, id };
+    const [, view = '', id = '', action = ''] = location.hash.split('/');
+    return { view, id, action };
   };
   const [route, setRoute] = useState(parse);
   useEffect(() => {
@@ -155,6 +155,19 @@ function App() {
     }
   }, [store, route.view]);
 
+  // The home tab's icon is the workspace of this window, so the tab strip says where you are.
+  const homeWs = HOME && store?.currentId ? store.state.workspaces[store.currentId] : null;
+  useEffect(() => {
+    if (!HOME || !store) return undefined;
+    let alive = true;
+    const link = document.querySelector('link[rel=icon]');
+    if (!homeWs) link.href = '../../icons/icon-32.png';
+    else workspaceFavicon(homeWs).then((href) => alive && (link.href = href));
+    return () => {
+      alive = false;
+    };
+  }, [!!store, homeWs?.id, homeWs?.color, homeWs?.icon, homeWs?.image, homeWs?.name]);
+
   if (!store) return null;
   const ws = HOME ? (store.currentId ? store.state.workspaces[store.currentId] : null) : route.view === 'ws' ? store.state.workspaces[route.id] : null;
   // The home tab's tooltip names the workspace of this window.
@@ -180,6 +193,7 @@ function App() {
     <main>${main}</main>
     ${creating && html`<${NewWorkspaceModal} store=${store} open=${HOME} onClose=${() => setCreating(false)} onCreated=${(id) => !HOME && go(`#/ws/${id}`)} />`}
     ${saving && html`<${NewWorkspaceModal} store=${store} fromWindowId=${store.windowId} onClose=${() => setSaving(false)} />`}
+    ${!HOME && ws && route.action === 'edit' && html`<${EditWorkspaceModal} ws=${ws} onClose=${() => go(`#/ws/${ws.id}`)} />`}
     <${ToastHost} />
   </div>`;
 }
