@@ -682,5 +682,11 @@
   },
   "menuKeepAlive": {
     "message": "Manter esta aba ativa ao trocar de workspace"
+  },
+  "homeOnSwitchSetting": {
+    "message": "Mostrar esta página ao trocar de workspace"
+  },
+  "homeOnSwitchDesc": {
+    "message": "Depois da troca, a janela fica na aba do Open Workspaces, mostrando o workspace que você abriu, em vez de pular para a última aba usada nele. Essa aba já carrega por trás, pronta para o clique."
   }
 }

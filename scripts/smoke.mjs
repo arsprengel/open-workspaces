@@ -135,7 +135,8 @@ async function scenario() {
   const restored = await tabsOf(win.id);
   check('A restored with its 3 URLs', restored.map((t) => t.pendingUrl || t.url).join() === U.join(), restored.map((t) => t.url));
   check('home tab survives switching', (await homesOf(win.id)).length === 1 && (await homesOf(win.id))[0].index === 0);
-  check('inactive restored tabs get discarded', await waitFor(async () => (await tabsOf(win.id)).filter((t) => !t.active).every((t) => t.discarded)));
+  // The home tab is in front after a switch; the workspace's last used tab stays loaded, ready to click.
+  check('restored tabs other than the last used one get discarded', await waitFor(async () => (await tabsOf(win.id)).filter((t) => !t.discarded).length === 1));
   const disc = await tabsOf(win.id);
   check('discarded tabs keep their URL', disc.every((t) => U.includes(t.url)), disc.map((t) => t.url));
   check('B kept example.org after switching away', (await state()).workspaces[B].tabs.some((t) => t.url.startsWith('https://example.org')));
@@ -551,6 +552,55 @@ async function keepAliveCheck(port, dash) {
   ];
 }
 
+/**
+ * Switching workspaces lands on the home tab (the Open Workspaces page) instead of the workspace's first
+ * tab; the tab you last used there still loads, ready to click. With the setting off, the old behavior.
+ */
+async function homeOnSwitchCheck(dash) {
+  const H = ['https://example.com/?h1', 'https://example.com/?h2', 'https://example.com/?h3'];
+  const r = await dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const HOME = chrome.runtime.getURL('src/home/home.html');
+    const active = async (windowId) => (await chrome.tabs.query({ windowId, active: true }))[0];
+    const win = await chrome.windows.create({ url: ${JSON.stringify(H)}, focused: false });
+    await sleep(2000);
+    const { id: one } = await call('createWorkspace', { name: 'Home one', fromWindowId: win.id });
+    const { id: two } = await call('createWorkspace', { name: 'Home two' });
+    const used = (await chrome.tabs.query({ windowId: win.id })).find((t) => t.url === ${JSON.stringify(H[1])});
+    await chrome.tabs.update(used.id, { active: true });
+    await sleep(600);
+
+    await call('openWorkspace', { id: two, windowId: win.id });
+    const onHomeAway = (await active(win.id))?.url.startsWith(HOME);
+    await call('openWorkspace', { id: one, windowId: win.id });
+    await sleep(1500);
+    const onHomeBack = (await active(win.id))?.url.startsWith(HOME);
+    const tabs = (await chrome.tabs.query({ windowId: win.id })).filter((t) => !t.url.startsWith(HOME));
+    const lastUsedLoaded = tabs.find((t) => (t.pendingUrl || t.url) === ${JSON.stringify(H[1])})?.discarded === false;
+    const othersLazy = tabs.filter((t) => (t.pendingUrl || t.url) !== ${JSON.stringify(H[1])}).every((t) => t.discarded);
+
+    await call('updateSettings', { patch: { homeOnSwitch: false } });
+    await call('openWorkspace', { id: two, windowId: win.id });
+    await call('openWorkspace', { id: one, windowId: win.id });
+    const offLandsOnTab = (await active(win.id))?.pendingUrl === ${JSON.stringify(H[1])} || (await active(win.id))?.url === ${JSON.stringify(H[1])};
+    await call('updateSettings', { patch: { homeOnSwitch: true } });
+
+    await chrome.windows.remove(win.id);
+    for (const id of [one, two]) await call('deleteWorkspace', { id });
+    return { onHomeAway, onHomeBack, lastUsedLoaded, othersLazy, offLandsOnTab };
+  })()`);
+  return [
+    { name: 'switching workspaces lands on the Open Workspaces page', ok: r.onHomeAway && r.onHomeBack, detail: JSON.stringify(r) },
+    { name: 'the tab last used in the workspace is loaded, the others wait', ok: r.lastUsedLoaded && r.othersLazy, detail: JSON.stringify(r) },
+    { name: 'with the setting off, switching opens the last used tab', ok: r.offLandsOnTab, detail: JSON.stringify(r) },
+  ];
+}
+
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
 function dropOnCardCheck(cdp) {
   return cdp.eval(`(async () => {
@@ -832,6 +882,7 @@ async function main() {
     checks.push({ name: 'dashboard lists workspaces', ok: dashText.includes('Alpha') && dashText.includes('Beta'), detail: dashText.slice(0, 200) });
     checks.push(...(await popupUploadCheck(port, pages.popup, pages.dashboard)));
     checks.push(...(await keepAliveCheck(port, pages.dashboard)));
+    checks.push(...(await homeOnSwitchCheck(pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');
 

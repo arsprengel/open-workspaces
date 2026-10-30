@@ -156,7 +156,7 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
     const closing = leaving.filter((t) => !keptAlive.has(t.id)).map((t) => t.id);
     if (closing.length) await chrome.tabs.remove(closing).catch(() => {});
     await tidyParkedGroups(windowId);
-    if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true });
+    if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true, activate: settings.homeOnSwitch });
     return ids;
   });
   await touchOpened(wsId);
@@ -174,7 +174,7 @@ async function openInNewWindow(wsId) {
     await setWindowWorkspace(win.id, wsId);
     const ids = await restoreTabs(win.id, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned });
     await chrome.tabs.remove(initial.map((t) => t.id)).catch(() => {});
-    if (settings.homeTab) await ensureHomeTab(win.id);
+    if (settings.homeTab) await ensureHomeTab(win.id, { activate: settings.homeOnSwitch });
     return ids;
   });
   await touchOpened(wsId);

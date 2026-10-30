@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Home tab: a pinned tab with the extension icon at the left of every window opens a page showing this window's workspace, with every other workspace one click away (can be turned off in settings).
 - Pinned tabs stay open in every workspace instead of being swapped out (can be turned off in settings).
+- After a workspace switch the window shows the Open Workspaces page (the home tab) instead of jumping to the workspace's last used tab, which still loads in the background. Can be turned off in settings.
 - Keep tabs running: mark a tab (lightning button in the tab list, or right-click the page) and switching workspaces no longer closes it. It waits, still running, in a collapsed tab group named after its workspace at the end of the window, and comes back in place without a reload. Marked tabs are never suspended.
 - Pin suggestions: opening an always-on site (Gmail, Google Calendar, Google Chat, Outlook, Proton Mail, Yahoo Mail, WhatsApp, Telegram, Slack, Microsoft Teams, Discord, Spotify, YouTube Music) in an unpinned tab asks in the toolbar popup, once per browser session, whether to pin it; a site can be muted, and the suggestions turned off in settings.
 - Workspace images: upload a PNG, ICO, SVG, JPG or WebP as the workspace icon; custom workspace colors.

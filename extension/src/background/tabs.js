@@ -65,12 +65,18 @@ export async function snapshotWindow(windowId) {
   const { settings, workspaces } = await getState();
   const [marks, parked] = await Promise.all([getMarks(), getParked()]);
   const groups = chrome.tabGroups ? await chrome.tabGroups.query({ windowId }).catch(() => []) : [];
-  const nextTabs = tabs.filter((tab) => !isWindowFixture(tab, settings.keepPinned, parked)).map((tab) => serializeTab(tab, !!marks[tab.id]));
+  const current = workspaces[wsId];
+  if (!current) return;
+  const own = tabs.filter((tab) => !isWindowFixture(tab, settings.keepPinned, parked));
+  const nextTabs = own.map((tab) => serializeTab(tab, !!marks[tab.id]));
+  // With the home tab in front, keep the workspace tab used last as the active one: it's restored loaded.
+  if (!nextTabs.some((t) => t.active) && own.length) {
+    const before = current.tabs.find((t) => t.active);
+    nextTabs[Math.max(0, before ? nextTabs.findIndex((t) => normalizeUrl(t.url) === normalizeUrl(before.url)) : 0)].active = true;
+  }
   const used = new Set(nextTabs.map((t) => t.groupKey).filter(Boolean));
   const nextGroups = groups.map(serializeGroup).filter((g) => used.has(g.key));
 
-  const current = workspaces[wsId];
-  if (!current) return;
   if (JSON.stringify(current.tabs) === JSON.stringify(nextTabs) && JSON.stringify(current.groups) === JSON.stringify(nextGroups)) return;
 
   await mutate((state) => {
@@ -200,30 +206,33 @@ export const homeUrl = () => chrome.runtime.getURL(HOME_PAGE);
 const isOwnHome = (tab) => (tab.pendingUrl || tab.url || '').startsWith(homeUrl());
 
 /**
- * Makes sure `windowId` has exactly one home tab, pinned at the far left. `refresh` is for a workspace
- * switch: the browser may have frozen the home tab in the background, and a frozen page can't change its icon.
+ * Makes sure `windowId` has exactly one home tab, pinned at the far left, and returns its id. `refresh` is
+ * for a workspace switch: the browser may have frozen the home tab in the background, and a frozen page
+ * can't change its icon. `activate` brings it to the front.
  */
-export async function ensureHomeTab(windowId, { refresh = false } = {}) {
+export async function ensureHomeTab(windowId, { refresh = false, activate = false } = {}) {
   let tabs;
   try {
     tabs = await chrome.tabs.query({ windowId });
   } catch {
-    return; // window is gone
+    return null; // window is gone
   }
   const [home, ...extra] = tabs.filter(isOwnHome);
   if (extra.length) await chrome.tabs.remove(extra.map((t) => t.id)).catch(() => {});
   try {
     if (!home) {
-      await chrome.tabs.create({ windowId, url: homeUrl(), pinned: true, index: 0, active: false });
-      return;
+      return (await chrome.tabs.create({ windowId, url: homeUrl(), pinned: true, index: 0, active: activate })).id;
     }
     if (!home.pinned) await chrome.tabs.update(home.id, { pinned: true });
     if (home.index !== 0) await chrome.tabs.move(home.id, { index: 0 });
     // Its icon shows the window's workspace; a discarded or frozen tab would keep the old one until clicked.
     // Browsers before Chrome 132 don't say whether a tab is frozen, so there any background home tab reloads.
     if (home.discarded || (refresh && !home.active && home.frozen !== false)) await chrome.tabs.reload(home.id);
+    if (activate && !home.active) await chrome.tabs.update(home.id, { active: true });
+    return home.id;
   } catch (err) {
     console.warn('[open-workspaces] home tab', err);
+    return null;
   }
 }
 

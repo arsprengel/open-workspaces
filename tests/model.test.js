@@ -262,3 +262,8 @@ test('keepAliveMatches finds the live tabs behind kept-alive saved tabs', () => 
   assert.deepEqual(keepAliveMatches(live, saved), [2, 3, 4]);
   assert.deepEqual(keepAliveMatches(live, [{ url: 'https://a.com/' }]), []);
 });
+
+test('switching workspaces shows the Open Workspaces page by default', () => {
+  assert.equal(normalizeState({}).settings.homeOnSwitch, true);
+  assert.equal(normalizeState({ settings: { homeOnSwitch: false } }).settings.homeOnSwitch, false);
+});

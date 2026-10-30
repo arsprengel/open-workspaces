@@ -78,6 +78,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   confirmDelete: true,
   /** Keep a pinned tab with the extension icon at the left of every window (opens the home page). */
   homeTab: true,
+  /** After a workspace switch, show the home tab (this page) instead of the workspace's last used tab. */
+  homeOnSwitch: true,
   /** Tabs pinned in the browser belong to the window: they stay open when switching workspaces. */
   keepPinned: true,
   /** Offer to pin always-on sites (PIN_SITES) when one opens in an unpinned tab. */
