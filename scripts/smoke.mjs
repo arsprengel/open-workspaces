@@ -567,6 +567,15 @@ async function homeOnSwitchCheck(dash) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const HOME = chrome.runtime.getURL('src/home/home.html');
     const active = async (windowId) => (await chrome.tabs.query({ windowId, active: true }))[0];
+    // Every tab brought to the front during a switch: anything but the home tab is a visible flash.
+    const fronted = [];
+    const onActivated = ({ tabId, windowId }) => fronted.push({ tabId, windowId });
+    chrome.tabs.onActivated.addListener(onActivated);
+    const homeOf = async (windowId) => (await chrome.tabs.query({ windowId })).find((t) => (t.pendingUrl || t.url).startsWith(HOME))?.id;
+    const flashes = async (windowId) => {
+      const home = await homeOf(windowId);
+      return fronted.splice(0).filter((a) => a.windowId === windowId && a.tabId !== home).length;
+    };
     const win = await chrome.windows.create({ url: ${JSON.stringify(H)}, focused: false });
     await sleep(2000);
     const { id: one } = await call('createWorkspace', { name: 'Home one', fromWindowId: win.id });
@@ -575,10 +584,14 @@ async function homeOnSwitchCheck(dash) {
     await chrome.tabs.update(used.id, { active: true });
     await sleep(600);
 
+    fronted.length = 0;
     await call('openWorkspace', { id: two, windowId: win.id });
+    await sleep(300);
+    const flashAway = await flashes(win.id);
     const onHomeAway = (await active(win.id))?.url.startsWith(HOME);
     await call('openWorkspace', { id: one, windowId: win.id });
     await sleep(1500);
+    const flashBack = await flashes(win.id);
     const onHomeBack = (await active(win.id))?.url.startsWith(HOME);
     const tabs = (await chrome.tabs.query({ windowId: win.id })).filter((t) => !t.url.startsWith(HOME));
     const lastUsedLoaded = tabs.find((t) => (t.pendingUrl || t.url) === ${JSON.stringify(H[1])})?.discarded === false;
@@ -590,12 +603,20 @@ async function homeOnSwitchCheck(dash) {
     const offLandsOnTab = (await active(win.id))?.pendingUrl === ${JSON.stringify(H[1])} || (await active(win.id))?.url === ${JSON.stringify(H[1])};
     await call('updateSettings', { patch: { homeOnSwitch: true } });
 
-    await chrome.windows.remove(win.id);
+    fronted.length = 0;
+    const { windowId: other } = await call('openWorkspace', { id: two, newWindow: true });
+    await sleep(300);
+    const flashNew = await flashes(other);
+    const onHomeNew = (await active(other))?.url.startsWith(HOME);
+    chrome.tabs.onActivated.removeListener(onActivated);
+
+    for (const id of [win.id, other]) await chrome.windows.remove(id);
     for (const id of [one, two]) await call('deleteWorkspace', { id });
-    return { onHomeAway, onHomeBack, lastUsedLoaded, othersLazy, offLandsOnTab };
+    return { onHomeAway, onHomeBack, onHomeNew, flashAway, flashBack, flashNew, lastUsedLoaded, othersLazy, offLandsOnTab };
   })()`);
   return [
-    { name: 'switching workspaces lands on the Open Workspaces page', ok: r.onHomeAway && r.onHomeBack, detail: JSON.stringify(r) },
+    { name: 'switching workspaces lands on the Open Workspaces page', ok: r.onHomeAway && r.onHomeBack && r.onHomeNew, detail: JSON.stringify(r) },
+    { name: 'no workspace tab flashes in front before the Open Workspaces page', ok: !r.flashAway && !r.flashBack && !r.flashNew, detail: JSON.stringify(r) },
     { name: 'the tab last used in the workspace is loaded, the others wait', ok: r.lastUsedLoaded && r.othersLazy, detail: JSON.stringify(r) },
     { name: 'with the setting off, switching opens the last used tab', ok: r.offLandsOnTab, detail: JSON.stringify(r) },
   ];

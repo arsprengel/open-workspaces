@@ -92,10 +92,11 @@ export async function snapshotWindow(windowId) {
 
 /**
  * Re-creates the saved tabs of `ws` at the end of `windowId`. Kept-alive tabs still running in a parked
- * group (see keep-alive.js) are moved back instead, so they come back without a reload.
+ * group (see keep-alive.js) are moved back instead, so they come back without a reload. With `background`
+ * no restored tab comes to the front (the home tab stays there); the saved active one still loads.
  * @returns {Promise<number[]>} ids of tabs that should be lazily discarded once they commit a URL.
  */
-export async function restoreTabs(windowId, ws, { lazy = true, keepPinned = false } = {}) {
+export async function restoreTabs(windowId, ws, { lazy = true, keepPinned = false, background = false } = {}) {
   // Pinned tabs saved before "keep pinned tabs" was on are restored once, unless the window already has them.
   const pinnedHere = keepPinned
     ? new Set((await chrome.tabs.query({ windowId, pinned: true }).catch(() => [])).map((t) => normalizeUrl(t.pendingUrl || t.url)))
@@ -112,11 +113,11 @@ export async function restoreTabs(windowId, ws, { lazy = true, keepPinned = fals
     const active = i === activeIndex;
     const parkedId = byIndex.get(i);
     if (parkedId != null && (await unparkTab(parkedId, windowId))) {
-      if (active) await chrome.tabs.update(parkedId, { active: true }).catch(() => {});
+      if (active && !background) await chrome.tabs.update(parkedId, { active: true }).catch(() => {});
       created.push({ id: parkedId, src, active, hasUrl: false });
       continue;
     }
-    const props = { windowId, active, pinned: !!src.pinned };
+    const props = { windowId, active: active && !background, pinned: !!src.pinned };
     if (!isNewTabUrl(src.url)) props.url = src.url;
     try {
       const tab = await chrome.tabs.create(props);
@@ -134,10 +135,10 @@ export async function restoreTabs(windowId, ws, { lazy = true, keepPinned = fals
   }
   if (keptAlive.length) await markTabs(keptAlive);
   if (!created.length) {
-    const tab = await chrome.tabs.create({ windowId, active: true });
+    const tab = await chrome.tabs.create({ windowId, active: !background });
     created.push({ id: tab.id, src: list[0], active: true, hasUrl: false });
   }
-  if (!created.some((c) => c.active)) await chrome.tabs.update(created[0].id, { active: true }).catch(() => {});
+  if (!background && !created.some((c) => c.active)) await chrome.tabs.update(created[0].id, { active: true }).catch(() => {});
 
   await restoreGroups(windowId, ws, created);
 

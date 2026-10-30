@@ -2,7 +2,7 @@
 // JSON-serializable data. Wired to chrome.runtime.onMessage in service-worker.js.
 
 import { clearWindowMap, getState, getWindowMap, mutate, replaceState, setWindowWorkspace, unbindWorkspace, windowForWorkspace, workspaceForWindow } from './store.js';
-import { discardWhenReady, ensureHomeTab, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
+import { discardWhenReady, ensureHomeTab, homeUrl, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
 import {
   closeParked, dropParkedRecord, getMarks, getParked, markTabs, parkTabs, parkedOf, tidyParkedGroups, unregisterParked,
 } from './keep-alive.js';
@@ -147,7 +147,9 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
   const parked = await getParked();
   const lazyIds = await withBusyWindow(windowId, async () => {
     await setWindowWorkspace(windowId, wsId);
-    const ids = await restoreTabs(windowId, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned });
+    // Bring the home tab forward before restoring, so none of the workspace's tabs flashes in front first.
+    const home = settings.homeTab && settings.homeOnSwitch ? await ensureHomeTab(windowId, { activate: true }) : null;
+    const ids = await restoreTabs(windowId, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned, background: home != null });
     // The home tab, kept pinned tabs and other workspaces' parked tabs belong to the window, so they survive the swap.
     const leaving = oldTabs.filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
     // Tabs marked to keep running wait in a collapsed group instead of closing (pinned tabs can't be grouped).
@@ -156,7 +158,7 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
     const closing = leaving.filter((t) => !keptAlive.has(t.id)).map((t) => t.id);
     if (closing.length) await chrome.tabs.remove(closing).catch(() => {});
     await tidyParkedGroups(windowId);
-    if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true, activate: settings.homeOnSwitch });
+    if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true, activate: home != null });
     return ids;
   });
   await touchOpened(wsId);
@@ -168,13 +170,16 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
 async function openInNewWindow(wsId) {
   const { settings, workspaces } = await getState();
   const ws = workspaces[wsId];
-  const win = await chrome.windows.create({ focused: true });
+  // Opening straight onto the home page keeps a blank tab and the workspace's tabs from flashing in front.
+  const onHome = settings.homeTab && settings.homeOnSwitch;
+  const win = await chrome.windows.create({ focused: true, ...(onHome && { url: homeUrl() }) });
   const lazyIds = await withBusyWindow(win.id, async () => {
     const initial = win.tabs?.length ? win.tabs : await chrome.tabs.query({ windowId: win.id });
     await setWindowWorkspace(win.id, wsId);
-    const ids = await restoreTabs(win.id, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned });
-    await chrome.tabs.remove(initial.map((t) => t.id)).catch(() => {});
-    if (settings.homeTab) await ensureHomeTab(win.id, { activate: settings.homeOnSwitch });
+    const ids = await restoreTabs(win.id, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned, background: onHome });
+    const blank = onHome ? initial.filter((t) => !isWindowFixture(t, false)) : initial;
+    await chrome.tabs.remove(blank.map((t) => t.id)).catch(() => {});
+    if (settings.homeTab) await ensureHomeTab(win.id, { activate: onHome });
     return ids;
   });
   await touchOpened(wsId);
