@@ -2,7 +2,8 @@
 
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js';
 import { hostname, isHomeUrl, isNewTabUrl, isWindowFixture, orderedWorkspaces, realTabCount } from '../shared/model.js';
-import { call, downloadJson, openUrl, relativeTime, t, useWindowTabs, wsLabel } from './api.js';
+import { PIN_SITES } from '../shared/constants.js';
+import { call, downloadJson, openUrl, relativeTime, siteName, t, useWindowTabs, wsLabel } from './api.js';
 import {
   Badge, DND, Favicon, FieldMark, GROUP_COLORS, Icon, IconButton, InlineInput, Menu, MenuItem, MenuSep, MenuTitle,
   Modal, Switch, WorkspaceForm, getDrag, hasDrag, run, setDrag, swatchStyle, toast,
@@ -696,6 +697,7 @@ export function SettingsView({ state }) {
   const s = state.settings;
   const set = (patch) => run(call('updateSettings', { patch }));
   const setSuspend = (patch) => set({ suspend: patch });
+  const mutedSites = PIN_SITES.filter((site) => s.pinMuted[site.id]);
   const [commands, setCommands] = useState([]);
   const fileRef = useRef(null);
   const [importMode, setImportMode] = useState('merge');
@@ -737,6 +739,19 @@ export function SettingsView({ state }) {
         <div><div class="label">${t('keepPinnedSetting')}</div><div class="desc">${t('keepPinnedDesc')}</div></div>
         <div class="control"><${Switch} checked=${s.keepPinned} label=${t('keepPinnedSetting')} onChange=${(v) => set({ keepPinned: v })} /></div>
       </div>
+      ${s.keepPinned &&
+      html`<div class="setting">
+        <div>
+          <div class="label">${t('pinSuggestionsSetting')}</div>
+          <div class="desc">${t('pinSuggestionsDesc')}</div>
+          ${mutedSites.length > 0 &&
+          html`<div class="desc hstack" style="margin-top:8px;flex-wrap:wrap;gap:6px">
+            ${t('pinMutedList', mutedSites.map(siteName).join(', '))}
+            <button class="btn sm ghost" onClick=${() => set({ pinMuted: Object.fromEntries(mutedSites.map((site) => [site.id, false])) })}>${t('pinMutedReset')}</button>
+          </div>`}
+        </div>
+        <div class="control"><${Switch} checked=${s.pinSuggestions} label=${t('pinSuggestionsSetting')} onChange=${(v) => set({ pinSuggestions: v })} /></div>
+      </div>`}
       <div class="setting">
         <div><div class="label">${t('lazyLoad')}</div><div class="desc">${t('lazyLoadDesc')}</div></div>
         <div class="control"><${Switch} checked=${s.lazyLoadTabs} label=${t('lazyLoad')} onChange=${(v) => set({ lazyLoadTabs: v })} /></div>

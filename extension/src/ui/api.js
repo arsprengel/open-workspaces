@@ -6,6 +6,9 @@ import { normalizeState, normalizeUrl } from '../shared/model.js';
 
 export const t = (key, ...subs) => chrome.i18n.getMessage(key, subs.map(String)) || key;
 
+/** Display name of an always-on site (see PIN_SITES), translated where the product name is. */
+export const siteName = (site) => chrome.i18n.getMessage(`site_${site.id}`) || site.name;
+
 /** Calls an action in the service worker (see background/actions.js). */
 export async function call(action, payload = {}) {
   const res = await chrome.runtime.sendMessage({ type: MSG, action, payload });
@@ -113,10 +116,10 @@ export function useUnsavedWindows(windowMap) {
   return wins;
 }
 
-export function faviconUrl(pageUrl) {
+export function faviconUrl(pageUrl, size = 32) {
   const u = new URL(chrome.runtime.getURL('/_favicon/'));
   u.searchParams.set('pageUrl', pageUrl || 'about:blank');
-  u.searchParams.set('size', '32');
+  u.searchParams.set('size', String(size));
   return u.toString();
 }
 

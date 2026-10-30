@@ -2,15 +2,49 @@
 
 import { html, render, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
 import { POPUP_INTENT_KEY } from '../shared/constants.js';
-import { hostname, isNewTabUrl, orderedWorkspaces, realTabCount, search } from '../shared/model.js';
-import { call, openUrl, t, useStore, useTheme, wsLabel } from '../ui/api.js';
+import { hostname, isNewTabUrl, orderedWorkspaces, realTabCount, search, suggestedSite } from '../shared/model.js';
+import { call, faviconUrl, openUrl, siteName, t, useStore, useTheme, wsLabel } from '../ui/api.js';
 import { Badge, Favicon, FieldMark, Icon, IconButton, ToastHost, run, swatchStyle } from '../ui/components.js';
 import { NewWorkspaceModal } from '../ui/views.js';
 
 async function takeIntent() {
   const { [POPUP_INTENT_KEY]: intent } = await chrome.storage.session.get(POPUP_INTENT_KEY);
   if (intent) await chrome.storage.session.remove(POPUP_INTENT_KEY);
-  return intent ?? 'switch';
+  if (intent?.kind !== 'pin') return intent ?? 'switch';
+  // Opened by the service worker to offer pinning an always-on site; skip it if the tab changed since.
+  const tab = await chrome.tabs.get(intent.tabId).catch(() => null);
+  const site = tab && !tab.pinned ? suggestedSite(tab.url) : null;
+  return site?.id === intent.siteId ? { kind: 'pin', tab, site } : 'switch';
+}
+
+/** "Keep Gmail pinned in every workspace?" with pin, not now, and never ask again for this site. */
+function PinAsk({ tab, site }) {
+  const name = siteName(site);
+  const done = () => window.close();
+  return html`<div class="pin-ask">
+    <div class="sw wide neutral">
+      <div class="sw-field"><img src=${faviconUrl(tab.url, 64)} alt="" /></div>
+      <div class="sw-label">
+        <div class="sw-name truncate">${name}</div>
+        <div class="sw-code mono truncate">${hostname(tab.url)}</div>
+      </div>
+    </div>
+    <div>
+      <h1 class="pin-ask-q">${t('pinAskQuestion', name)}</h1>
+      <p class="muted">${t('pinAskDesc')}</p>
+    </div>
+    <div class="pin-ask-actions">
+      <button class="btn primary" autofocus onClick=${async () => {
+        await run(call('pinTab', { tabId: tab.id }));
+        done();
+      }}><${Icon} name="pin" />${t('pinAskYes')}</button>
+      <button class="btn" onClick=${done}>${t('pinAskLater')}</button>
+    </div>
+    <button class="btn sm ghost pin-ask-mute" onClick=${async () => {
+      await run(call('updateSettings', { patch: { pinMuted: { [site.id]: true } } }));
+      done();
+    }}>${t('pinAskNever', name)}</button>
+  </div>`;
 }
 
 function App() {
@@ -50,6 +84,7 @@ function App() {
   }, [cursor]);
 
   if (!store || intent === null) return null;
+  if (intent.kind === 'pin') return html`<${PinAsk} tab=${intent.tab} site=${intent.site} />`;
 
   const activate = async (item, { newWindow = false } = {}) => {
     if (moving) {

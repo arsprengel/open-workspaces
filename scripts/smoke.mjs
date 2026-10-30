@@ -9,8 +9,9 @@
 // Note: Google Chrome (branded) 137+ ignores --load-extension. Use Chromium, Chrome for
 // Testing, Helium, Brave, etc.
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -363,6 +364,90 @@ async function backgroundIconCheck(port, dash, mode, image) {
   return [{ name: `home tab icon updates while ${mode} in the background`, ok: after !== before && after.startsWith('data:image'), detail: '' }];
 }
 
+/**
+ * Serves a stand-in for web.whatsapp.com over HTTPS (self-signed, the browser maps the host here), so
+ * the pin suggestion for always-on sites can be tested without a real account. Null without openssl.
+ */
+async function startPinSite(dir) {
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=web.whatsapp.com',
+      '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem')], { stdio: 'ignore' });
+  } catch {
+    return null;
+  }
+  const server = createServer({ key: readFileSync(join(dir, 'key.pem')), cert: readFileSync(join(dir, 'cert.pem')) }, (_req, res) => {
+    res.setHeader('content-type', 'text/html');
+    res.end('<title>WhatsApp</title><p>Local stand-in for web.whatsapp.com');
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  return server;
+}
+
+/**
+ * Opening an always-on site in an unpinned tab asks in the toolbar popup whether to pin it: "Pin tab"
+ * pins it, the same site isn't offered twice in a browser session, and "Don't ask again" mutes it.
+ */
+async function pinSuggestCheck(port, dash) {
+  const known = new Set((await getJson(port, '/json/list')).map((x) => x.id));
+  const waitPopup = async (ms) => {
+    for (let waited = 0; waited < ms; waited += 200) {
+      await sleep(200);
+      const target = (await getJson(port, '/json/list')).find((x) => x.url.includes('/src/popup/popup.html') && !known.has(x.id));
+      if (target) {
+        known.add(target.id);
+        const cdp = new Cdp(target.webSocketDebuggerUrl);
+        await cdp.ready;
+        await sleep(500);
+        return cdp;
+      }
+    }
+    return null;
+  };
+  const windows = [];
+  const openSite = async () => {
+    const id = await dash.eval(`chrome.windows.create({ url: 'https://web.whatsapp.com/', focused: true }).then((w) => w.id)`);
+    windows.push(id);
+    return id;
+  };
+  const siteTab = (windowId) => dash.eval(`chrome.tabs.query({ windowId: ${windowId} }).then((ts) => ts.find((t) => t.url.startsWith('https://web.whatsapp.com')) ?? null)`);
+  // The popup closes itself on click, so no reply would come back.
+  const click = (cdp, selector) => cdp.send('Runtime.evaluate', { expression: `document.querySelector('${selector}').click()` }).catch(() => {});
+  const forgetAsked = () => dash.eval(`chrome.storage.session.remove('pinAsked')`);
+
+  const w1 = await openSite();
+  const ask = await waitPopup(6000);
+  const text = ask ? await ask.eval(`document.querySelector('.pin-ask')?.innerText ?? ''`) : '';
+  if (ask) click(ask, '.pin-ask .btn.primary');
+  await sleep(1000);
+  const pinned = (await siteTab(w1))?.pinned === true;
+
+  await openSite();
+  const again = await waitPopup(2500);
+  again?.close();
+
+  await forgetAsked();
+  await openSite();
+  const muteAsk = await waitPopup(6000);
+  if (muteAsk) click(muteAsk, '.pin-ask-mute');
+  await sleep(1000);
+  const muted = await dash.eval(`chrome.storage.local.get('state').then(({ state }) => state.settings.pinMuted.whatsapp === true)`);
+  await forgetAsked();
+  await openSite();
+  const afterMute = await waitPopup(2500);
+  afterMute?.close();
+
+  await dash.eval(`(async () => {
+    for (const id of ${JSON.stringify(windows)}) await chrome.windows.remove(id).catch(() => {});
+    await chrome.runtime.sendMessage({ type: 'ow:call', action: 'updateSettings', payload: { patch: { pinMuted: { whatsapp: false } } } });
+  })()`);
+  return [
+    { name: 'opening WhatsApp asks to pin it in the popup', ok: text.includes('WhatsApp'), detail: text.slice(0, 120) },
+    { name: '"pin tab" pins the tab', ok: pinned, detail: '' },
+    { name: 'the same site is offered once per session', ok: !again, detail: '' },
+    { name: '"don\'t ask again" mutes the site', ok: muted && !afterMute, detail: JSON.stringify({ muted, askedAfterMute: !!afterMute }) },
+  ];
+}
+
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
 function dropOnCardCheck(cdp) {
   return cdp.eval(`(async () => {
@@ -493,6 +578,7 @@ async function captureScreens(port, extId, dir, dash, full) {
     { name: 'settings-1440', path: 'dashboard/dashboard.html#/settings', w: 1440, h: 1700 },
     { name: 'popup', path: 'popup/popup.html', w: 360, h: 580 },
     { name: 'popup-search', path: 'popup/popup.html', w: 360, h: 580, type: 'git' },
+    { name: 'popup-pin', path: 'popup/popup.html', w: 360, h: 360, pin: true },
     { name: 'sidepanel', path: 'sidepanel/sidepanel.html', w: 400, h: 800 },
     { name: 'sidepanel-resources', path: 'sidepanel/sidepanel.html', w: 400, h: 800, view: 'resources' },
     { name: 'form-1440', home: demoWin, w: 1440, h: 900, click: '.sidebar .sw-field' },
@@ -508,6 +594,15 @@ async function captureScreens(port, extId, dir, dash, full) {
       await cdp.send('Emulation.setDeviceMetricsOverride', { width: shot.w, height: shot.h, deviceScaleFactor: 2, mobile: false });
       await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
       await cdp.eval(`localStorage.setItem('ow:view', ${JSON.stringify(shot.view ?? 'tabs')})`).catch(() => {});
+      // The pin question needs an unpinned always-on site to ask about.
+      const pinTabId = shot.pin
+        ? await dash.eval(`(async () => {
+            const tab = await chrome.tabs.create({ windowId: ${demoWin}, url: 'https://web.whatsapp.com/', active: false });
+            await new Promise((done) => setTimeout(done, 1500));
+            await chrome.storage.session.set({ popupIntent: { kind: 'pin', tabId: tab.id, siteId: 'whatsapp' } });
+            return tab.id;
+          })()`)
+        : null;
       await cdp.send('Page.reload');
       await sleep(1500);
       if (shot.type) {
@@ -520,6 +615,7 @@ async function captureScreens(port, extId, dir, dash, full) {
       }
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' });
       writeFileSync(join(dir, `${shot.name}${dark ? '-dark' : ''}.png`), Buffer.from(data, 'base64'));
+      if (pinTabId) await dash.eval(`chrome.tabs.remove(${pinTabId})`);
       if (full && !dark && shot.w === 1440 && !shot.click) {
         // Keep the rendered page as a standalone file for the design-quality scan.
         const htmlDoc = await cdp.eval(`(async () => {
@@ -563,6 +659,7 @@ async function captureScreens(port, extId, dir, dash, full) {
 async function main() {
   const browser = findBrowser();
   const profile = mkdtempSync(join(tmpdir(), 'ow-smoke-'));
+  const pinSite = await startPinSite(profile);
   const args = [
     `--user-data-dir=${profile}`,
     `--load-extension=${EXT}`,
@@ -575,6 +672,7 @@ async function main() {
     '--disable-background-timer-throttling',
     '--disable-renderer-backgrounding',
     '--disable-backgrounding-occluded-windows',
+    ...(pinSite ? [`--host-resolver-rules=MAP web.whatsapp.com 127.0.0.1:${pinSite.address().port}`, '--ignore-certificate-errors'] : []),
     ...(process.env.HEADED ? [] : ['--headless=new']),
     'about:blank',
   ];
@@ -630,6 +728,8 @@ async function main() {
     const dashText = await pages.dashboard.eval('document.body.innerText');
     checks.push({ name: 'dashboard lists workspaces', ok: dashText.includes('Alpha') && dashText.includes('Beta'), detail: dashText.slice(0, 200) });
     checks.push(...(await popupUploadCheck(port, pages.popup, pages.dashboard)));
+    if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
+    else console.log('note: openssl not found, pin suggestion checks skipped');
 
     if (process.env.DEBUG) console.log(swCdp.events.filter((e) => e.method === 'Runtime.consoleAPICalled').map((e) => e.params.args.map((a) => a.value ?? a.description).join(' ')));
     for (const [name, cdp] of [...Object.entries(pages), ['service-worker', swCdp]]) {
@@ -659,6 +759,7 @@ async function main() {
     console.error(err);
   } finally {
     proc.kill();
+    pinSite?.close();
     await sleep(800);
     try {
       rmSync(profile, { recursive: true, force: true });

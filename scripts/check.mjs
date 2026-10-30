@@ -39,6 +39,7 @@ for (const file of sources) {
 }
 for (const m of JSON.stringify(manifest).matchAll(/__MSG_([A-Za-z0-9_]+)__/g)) used.add(m[1]);
 ['tabs', 'resources', 'notes', 'tasks'].forEach((k) => used.add(k)); // t(view) in settings
+for (const k of Object.keys(base ?? {})) if (k.startsWith('site_')) used.add(k); // siteName(): names of PIN_SITES
 
 for (const key of used) if (base && !base[key]) fail(`missing key in ${manifest.default_locale}: ${key}`);
 for (const [locale, messages] of Object.entries(locales)) {

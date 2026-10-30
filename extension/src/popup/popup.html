@@ -20,6 +20,13 @@
       .popup-foot { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border-top: 1px solid var(--border); background: var(--surface); }
       .keys { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; }
       .keys .kbd + .kbd, .keys .kbd:not(:first-child) { margin-left: 6px; }
+      .pin-ask { display: flex; flex-direction: column; gap: 14px; padding: 14px; }
+      /* Weight, not size, sets the question apart: the swatch name above is the one large line. */
+      .pin-ask-q { margin: 0 0 3px; font-size: inherit; font-weight: 700; line-height: 1.35; text-wrap: pretty; }
+      .pin-ask p { margin: 0; text-wrap: pretty; }
+      .pin-ask-actions { display: flex; gap: 8px; }
+      .pin-ask-actions .btn { flex: 1; justify-content: center; }
+      .pin-ask-mute { align-self: center; margin-top: -6px; }
       /* The popup grows with its content, so give modals room. */
       .popup .overlay { position: fixed; }
       .popup .modal { padding: 16px; }

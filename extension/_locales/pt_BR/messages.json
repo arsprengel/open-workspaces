@@ -622,5 +622,50 @@
   },
   "windowTabs": {
     "message": "Abas desta janela"
+  },
+  "pinAskQuestion": {
+    "message": "Deixar o $SITE$ fixo em todos os workspaces?",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinAskDesc": {
+    "message": "A aba vai para a esquerda da barra de abas e continua aberta quando você troca de workspace."
+  },
+  "pinAskYes": {
+    "message": "Fixar aba"
+  },
+  "pinAskLater": {
+    "message": "Agora não"
+  },
+  "pinAskNever": {
+    "message": "Não perguntar mais sobre o $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinSuggestionsSetting": {
+    "message": "Sugerir fixar sites que ficam sempre abertos"
+  },
+  "pinSuggestionsDesc": {
+    "message": "Quando você abre Gmail, Outlook, WhatsApp, Slack, Teams, Discord, Spotify e sites parecidos numa aba que não está fixada, pergunta uma vez por sessão do navegador se quer deixá-los fixos em todos os workspaces."
+  },
+  "pinMutedList": {
+    "message": "Sem perguntar: $SITES$",
+    "placeholders": {
+      "sites": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinMutedReset": {
+    "message": "Voltar a perguntar"
+  },
+  "site_calendar": {
+    "message": "Google Agenda"
   }
 }

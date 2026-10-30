@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Home tab: a pinned tab with the extension icon at the left of every window opens a page showing this window's workspace, with every other workspace one click away (can be turned off in settings).
 - Pinned tabs stay open in every workspace instead of being swapped out (can be turned off in settings).
+- Pin suggestions: opening an always-on site (Gmail, Google Calendar, Google Chat, Outlook, Proton Mail, Yahoo Mail, WhatsApp, Telegram, Slack, Microsoft Teams, Discord, Spotify, YouTube Music) in an unpinned tab asks in the toolbar popup, once per browser session, whether to pin it; a site can be muted, and the suggestions turned off in settings.
 - Workspace images: upload a PNG, ICO, SVG, JPG or WebP as the workspace icon; custom workspace colors.
 
 ### Changed
