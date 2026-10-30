@@ -682,5 +682,11 @@
   },
   "menuKeepAlive": {
     "message": "Keep this tab running when switching workspaces"
+  },
+  "homeOnSwitchSetting": {
+    "message": "Show this page after switching workspaces"
+  },
+  "homeOnSwitchDesc": {
+    "message": "After a switch the window stays on the Open Workspaces tab, showing the workspace you opened, instead of jumping to its last used tab. That tab still loads in the background, ready to click."
   }
 }

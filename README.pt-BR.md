@@ -23,7 +23,7 @@ Gerenciadores como o Workona são ótimos até você passar dez minutos organiza
 ## Funcionalidades
 
 - **Workspaces ilimitados**, com nome, cor (pronta ou personalizada) e ícone: emoji, inicial ou uma imagem sua (PNG, ICO, SVG, JPG, WebP).
-- **Aba inicial.** Uma aba fixa pequena com o ícone da extensão fica à esquerda de cada janela. Clique nela para ver o workspace desta janela e trocar para qualquer outro com um clique.
+- **Aba inicial.** Uma aba fixa pequena com o ícone da extensão fica à esquerda de cada janela. Clique nela para ver o workspace desta janela e trocar para qualquer outro com um clique; depois da troca a janela fica nesta página, com a última aba usada do workspace já carregada por trás.
 - **Abas fixadas ficam no lugar.** Abas que você fixa no navegador (Gmail, YouTube...) pertencem à janela e continuam abertas em todos os workspaces. Ao abrir um site que fica sempre aberto (Gmail, Outlook, WhatsApp, Slack, Teams, Discord, Spotify...) numa aba não fixada, a janelinha da extensão pergunta se você quer fixá-lo.
 - **Troca na mesma janela** (ou em janela nova, você escolhe). Tudo é salvo automaticamente.
 - **Você não perde abas:** janelas com abas não salvas nunca são substituídas, fechar um workspace mantém as abas salvas, e janelas reabertas (Ctrl+Shift+T ou depois de reiniciar o navegador) são religadas ao workspace sozinhas.

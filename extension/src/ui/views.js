@@ -745,6 +745,11 @@ export function SettingsView({ state }) {
         <div><div class="label">${t('homeTabSetting')}</div><div class="desc">${t('homeTabDesc')}</div></div>
         <div class="control"><${Switch} checked=${s.homeTab} label=${t('homeTabSetting')} onChange=${(v) => set({ homeTab: v })} /></div>
       </div>
+      ${s.homeTab &&
+      html`<div class="setting">
+        <div><div class="label">${t('homeOnSwitchSetting')}</div><div class="desc">${t('homeOnSwitchDesc')}</div></div>
+        <div class="control"><${Switch} checked=${s.homeOnSwitch} label=${t('homeOnSwitchSetting')} onChange=${(v) => set({ homeOnSwitch: v })} /></div>
+      </div>`}
       <div class="setting">
         <div><div class="label">${t('keepPinnedSetting')}</div><div class="desc">${t('keepPinnedDesc')}</div></div>
         <div class="control"><${Switch} checked=${s.keepPinned} label=${t('keepPinnedSetting')} onChange=${(v) => set({ keepPinned: v })} /></div>

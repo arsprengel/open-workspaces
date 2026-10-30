@@ -36,7 +36,7 @@ Workspace managers like Workona are great until you've spent ten minutes organiz
 ## Features
 
 - **Unlimited workspaces.** Each workspace is a set of tabs with a name, a color (preset or custom) and an icon: an emoji, its initial or an image you upload (PNG, ICO, SVG, JPG, WebP).
-- **Home tab.** A small pinned tab with the extension icon sits at the left of every window. Click it to see the workspace of this window and switch to any other in one click.
+- **Home tab.** A small pinned tab with the extension icon sits at the left of every window. Click it to see the workspace of this window and switch to any other in one click; after a switch the window stays on this page, with the workspace's last used tab already loaded behind it.
 - **Pinned tabs stay put.** Tabs you pin in the browser (Gmail, YouTube...) belong to the window and stay open in every workspace. Open an always-on site (Gmail, Outlook, WhatsApp, Slack, Teams, Discord, Spotify...) in an unpinned tab and the toolbar popup offers to pin it.
 - **Switch in place.** Opening a workspace swaps the tabs of the current window (or opens a new window, your choice). Everything is saved automatically as you browse.
 - **Never lose tabs.** Windows with unsaved tabs are never replaced; closing a workspace keeps its tabs saved; a window you reopen (Ctrl+Shift+T or after a browser restart) is re-linked to its workspace automatically.
