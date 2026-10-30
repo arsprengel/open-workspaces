@@ -184,6 +184,7 @@ input, textarea { caret-color: var(--accent); }
 .icon-btn:active { scale: 0.96; }
 .icon-btn.sm { width: 24px; height: 24px; border-radius: 6px; }
 .icon-btn.danger:hover { color: var(--danger); }
+.icon-btn.on, .icon-btn.on:hover { color: var(--accent-text); }
 
 .ico { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 .icon-btn.sm .ico { width: 14px; height: 14px; }
@@ -415,6 +416,7 @@ button.sw-field:hover .sw-edit, button.sw-field:focus-visible .sw-edit { opacity
 .row .actions { display: none; gap: 2px; align-items: center; }
 .row:hover .actions, .row:focus-within .actions { display: flex; }
 .row .meta { flex: none; color: var(--muted); font: 11.5px var(--mono); }
+.row .meta.keep-alive { color: var(--accent-text); }
 .row:hover .hide-on-hover, .row:focus-within .hide-on-hover { display: none; }
 .row.dragging { opacity: 0.4; }
 .row.drop-before::before, .row.drop-after::after {

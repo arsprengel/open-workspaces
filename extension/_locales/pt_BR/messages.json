@@ -667,5 +667,20 @@
   },
   "site_calendar": {
     "message": "Google Agenda"
+  },
+  "keepAlive": {
+    "message": "Manter ativa ao trocar de workspace"
+  },
+  "keepAliveStop": {
+    "message": "Deixar de manter esta aba ativa"
+  },
+  "keepAliveOn": {
+    "message": "Continua rodando quando você troca de workspace"
+  },
+  "keepAliveDone": {
+    "message": "Esta aba continua rodando quando você trocar de workspace"
+  },
+  "menuKeepAlive": {
+    "message": "Manter esta aba ativa ao trocar de workspace"
   }
 }

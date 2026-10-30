@@ -5,9 +5,10 @@ import * as actions from './actions.js';
 import { cancelSnapshot, ensureHomeTab, isBusy, lastFocusedNormalWindow, scheduleSnapshot, syncHomeTabs } from './tabs.js';
 import { getState, setWindowWorkspace, workspaceForWindow } from './store.js';
 import { SUSPEND_ALARM, runAutoSuspend, suspendOtherTabs, suspendTabs, syncSuspendAlarm } from './suspender.js';
-import { handleMenuClick, scheduleMenuRebuild } from './menus.js';
+import { handleMenuClick, scheduleMenuRebuild, syncKeepAliveMenu } from './menus.js';
+import { forgetTab, recognizeParkedGroups } from './keep-alive.js';
 import { maybeSuggestPin, pinTab } from './pin-suggest.js';
-import { MSG, POPUP_INTENT_KEY, STATE_KEY } from '../shared/constants.js';
+import { KEEP_ALIVE_KEY, MSG, POPUP_INTENT_KEY, STATE_KEY } from '../shared/constants.js';
 
 // ---------------------------------------------------------------------------
 // Messaging: UI -> service worker
@@ -48,7 +49,8 @@ chrome.tabs.onCreated.addListener((tab) => scheduleSnapshot(tab.windowId));
 chrome.tabs.onUpdated.addListener((_id, info, tab) => {
   if (TRACKED_TAB_CHANGES.some((key) => key in info)) scheduleSnapshot(tab.windowId);
 });
-chrome.tabs.onRemoved.addListener((_id, info) => {
+chrome.tabs.onRemoved.addListener((tabId, info) => {
+  forgetTab(tabId, info.isWindowClosing).catch(() => {});
   // When a window closes its tabs are removed one by one; ignore that so the workspace keeps them.
   if (!info.isWindowClosing) scheduleSnapshot(info.windowId);
 });
@@ -72,7 +74,9 @@ chrome.tabs.onUpdated.addListener((_id, info, tab) => {
 });
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   chrome.tabs.get(tabId).then(maybeSuggestPin, () => {});
+  syncKeepAliveMenu();
 });
+chrome.windows.onFocusChanged.addListener(() => syncKeepAliveMenu());
 
 chrome.windows.onRemoved.addListener((windowId) => {
   cancelSnapshot(windowId);
@@ -82,9 +86,13 @@ chrome.windows.onRemoved.addListener((windowId) => {
 // A window reopened with Ctrl+Shift+T (or restored by the browser) gets re-linked to its workspace.
 chrome.windows.onCreated.addListener((win) => {
   if (win.type !== 'normal') return;
-  // Its tabs may still be loading, so try twice. Already-bound windows are skipped.
+  // Its tabs may still be loading, so try twice. Already-bound windows are skipped. A reopened window may
+  // bring back a group of kept-alive tabs: track it first so it isn't taken for the window's own tabs.
   for (const delay of [1000, 4000]) {
-    setTimeout(() => actions.reconcileWindows({ onlyWindowId: win.id }).catch((err) => console.warn('[open-workspaces] reconcile', err)), delay);
+    setTimeout(async () => {
+      await recognizeParkedGroups(win.id).catch(() => {});
+      await actions.reconcileWindows({ onlyWindowId: win.id }).catch((err) => console.warn('[open-workspaces] reconcile', err));
+    }, delay);
   }
   // Every window gets the home tab (extension pages can't open in incognito). A restored window may bring
   // its own, so check again later to drop duplicates.
@@ -108,6 +116,7 @@ async function applyActionBehavior() {
 }
 
 async function boot() {
+  await recognizeParkedGroups().catch((err) => console.warn('[open-workspaces] parked groups', err));
   await actions.reconcileWindows().catch((err) => console.warn('[open-workspaces] reconcile', err));
   if ((await getState()).settings.homeTab) await syncHomeTabs(true).catch((err) => console.warn('[open-workspaces] home tabs', err));
   await applyActionBehavior();
@@ -122,6 +131,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session' && changes[KEEP_ALIVE_KEY]) syncKeepAliveMenu();
   if (area !== 'local' || !changes[STATE_KEY]) return;
   const before = changes[STATE_KEY].oldValue;
   const after = changes[STATE_KEY].newValue;

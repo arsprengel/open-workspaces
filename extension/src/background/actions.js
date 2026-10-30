@@ -4,7 +4,11 @@
 import { clearWindowMap, getState, getWindowMap, mutate, replaceState, setWindowWorkspace, unbindWorkspace, windowForWorkspace, workspaceForWindow } from './store.js';
 import { discardWhenReady, ensureHomeTab, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
 import {
-  applyImport, buildExport, cleanImage, isNewTabUrl, isWindowFixture, makeSection, makeWorkspace, matchWindows, serializeTab, uid,
+  closeParked, dropParkedRecord, getMarks, getParked, markTabs, parkTabs, parkedOf, tidyParkedGroups, unregisterParked,
+} from './keep-alive.js';
+import {
+  applyImport, buildExport, cleanImage, isNewTabUrl, isWindowFixture, keepAliveMatches, makeSection, makeWorkspace, matchWindows,
+  pairParked, serializeTab, uid,
 } from '../shared/model.js';
 
 const ws404 = (id) => new Error(`workspace-not-found:${id}`);
@@ -68,13 +72,15 @@ export async function duplicateWorkspace({ id }) {
   });
 }
 
-/** Deletes the workspace. If it's open, its window stays open as an unsaved window. */
+/** Deletes the workspace. If it's open, its window stays open as an unsaved window; kept-alive tabs waiting for it close. */
 export async function deleteWorkspace({ id }) {
   await unbindWorkspace(id);
   await mutate((state) => {
     delete state.workspaces[id];
     state.order = state.order.filter((x) => x !== id);
   });
+  await closeParked((_tabId, p) => p.wsId === id);
+  await dropParkedRecord(id);
 }
 
 export async function setArchived({ id, archived }) {
@@ -126,7 +132,8 @@ export async function openWorkspace({ id, windowId = null, newWindow = false }) 
     const currentWsId = await workspaceForWindow(target);
     const currentTabs = await chrome.tabs.query({ windowId: target });
     const keepPinned = state.settings.keepPinned;
-    const hasUnsavedTabs = !currentWsId && currentTabs.some((t) => !isNewTabUrl(t.pendingUrl || t.url) && !isWindowFixture(t, keepPinned));
+    const parked = await getParked();
+    const hasUnsavedTabs = !currentWsId && currentTabs.some((t) => !isNewTabUrl(t.pendingUrl || t.url) && !isWindowFixture(t, keepPinned, parked));
     if (!hasUnsavedTabs) return swapWindow(target, id, currentTabs, currentWsId);
   }
   return openInNewWindow(id);
@@ -136,12 +143,19 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
   if (oldWsId) await snapshotWindow(windowId);
   const { settings, workspaces } = await getState();
   const ws = workspaces[wsId];
+  // Read before restoring: the new workspace's own parked tabs are part of oldTabs and must not leave.
+  const parked = await getParked();
   const lazyIds = await withBusyWindow(windowId, async () => {
     await setWindowWorkspace(windowId, wsId);
     const ids = await restoreTabs(windowId, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned });
-    // The home tab and kept pinned tabs belong to the window, so they survive the swap.
-    const leaving = oldTabs.filter((t) => !isWindowFixture(t, settings.keepPinned));
-    if (leaving.length) await chrome.tabs.remove(leaving.map((t) => t.id)).catch(() => {});
+    // The home tab, kept pinned tabs and other workspaces' parked tabs belong to the window, so they survive the swap.
+    const leaving = oldTabs.filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
+    // Tabs marked to keep running wait in a collapsed group instead of closing (pinned tabs can't be grouped).
+    const marks = await getMarks();
+    const keptAlive = new Set(await parkTabs(oldWsId && workspaces[oldWsId], leaving.filter((t) => marks[t.id] && !t.pinned)));
+    const closing = leaving.filter((t) => !keptAlive.has(t.id)).map((t) => t.id);
+    if (closing.length) await chrome.tabs.remove(closing).catch(() => {});
+    await tidyParkedGroups(windowId);
     if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true });
     return ids;
   });
@@ -181,7 +195,8 @@ export async function closeWorkspace({ id }) {
     return;
   }
   const { settings } = await getState();
-  const tabs = (await chrome.tabs.query({ windowId })).filter((t) => !isWindowFixture(t, settings.keepPinned));
+  const parked = await getParked();
+  const tabs = (await chrome.tabs.query({ windowId })).filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
   await chrome.tabs.create({ windowId, active: true });
   await chrome.tabs.remove(tabs.map((t) => t.id)).catch(() => {});
 }
@@ -208,6 +223,7 @@ export async function moveTabs({ tabIds, targetId }) {
   const tabs = (await Promise.all(tabIds.map((id) => chrome.tabs.get(id).catch(() => null)))).filter(Boolean);
   if (!tabs.length) return;
 
+  await unregisterParked(tabs.map((t) => t.id));
   if (targetWindow != null) {
     const toMove = tabs.filter((t) => t.windowId !== targetWindow).map((t) => t.id);
     if (toMove.length) {
@@ -217,10 +233,11 @@ export async function moveTabs({ tabIds, targetId }) {
     return;
   }
 
+  const marks = await getMarks();
   await mutate((state) => {
     const ws = requireWs(state, targetId);
     if (ws.tabs.every((t) => isNewTabUrl(t.url))) ws.tabs = [];
-    ws.tabs.push(...tabs.map((t) => ({ ...serializeTab(t), active: false, pinned: false, groupKey: null })));
+    ws.tabs.push(...tabs.map((t) => ({ ...serializeTab(t, !!marks[t.id]), active: false, pinned: false, groupKey: null })));
     ws.updatedAt = Date.now();
   });
   await keepWindowsAlive(tabs);
@@ -237,12 +254,23 @@ async function keepWindowsAlive(tabs) {
   }
 }
 
-/** Removes one saved tab from a workspace that isn't open. */
+/** Removes one saved tab from a workspace that isn't open (and closes it if it's kept running meanwhile). */
 export async function removeSavedTab({ wsId, index }) {
-  await mutate((state) => {
+  const parked = await parkedOf(wsId);
+  const removed = await mutate((state) => {
     const ws = requireWs(state, wsId);
+    const tabId = pairParked(ws.tabs, parked).byIndex.get(index);
     ws.tabs.splice(index, 1);
+    return tabId;
   });
+  if (removed != null) await closeParked((tabId) => tabId === removed);
+}
+
+/** Marks a tab to keep running while its workspace is closed (or unmarks it). */
+export async function setKeepAlive({ tabId, keep }) {
+  const tab = await chrome.tabs.get(tabId);
+  await markTabs([tabId], !!keep);
+  await snapshotWindow(tab.windowId);
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +427,8 @@ export async function importData({ data, mode = 'merge' }) {
   const next = applyImport(await getState(), data, mode);
   if (mode === 'replace') await clearWindowMap();
   await replaceState(next);
+  // Kept-alive tabs waiting for workspaces that no longer exist have nowhere to go back to.
+  await closeParked((_tabId, p) => !next.workspaces[p.wsId]);
   return { count: Object.keys(next.workspaces).length };
 }
 
@@ -414,12 +444,19 @@ export async function reconcileWindows({ onlyWindowId = null } = {}) {
   for (const win of Object.keys(map)) if (!alive.has(Number(win))) await setWindowWorkspace(Number(win), null);
 
   const boundWs = new Set(Object.values(await getWindowMap()));
+  const parked = await getParked();
+  const own = (w) => (w.tabs ?? []).filter((t) => !isWindowFixture(t, state.settings.keepPinned, parked));
   const candidates = windows
     .filter((w) => !(w.id in map) && (onlyWindowId == null || w.id === onlyWindowId))
-    .map((w) => ({ id: w.id, urls: (w.tabs ?? []).filter((t) => !isWindowFixture(t, state.settings.keepPinned)).map((t) => t.pendingUrl || t.url) }));
+    .map((w) => ({ id: w.id, urls: own(w).map((t) => t.pendingUrl || t.url) }));
   const free = Object.values(state.workspaces)
     .filter((ws) => !boundWs.has(ws.id) && !ws.archived)
     .map((ws) => ({ id: ws.id, urls: ws.tabs.map((t) => t.url) }));
 
-  for (const [windowId, wsId] of matchWindows(candidates, free)) await setWindowWorkspace(windowId, wsId);
+  for (const [windowId, wsId] of matchWindows(candidates, free)) {
+    await setWindowWorkspace(windowId, wsId);
+    // Tab ids changed since the marks were set: find the kept-alive tabs again by URL.
+    const ids = keepAliveMatches(own(windows.find((w) => w.id === windowId)), state.workspaces[wsId].tabs);
+    if (ids.length) await markTabs(ids);
+  }
 }

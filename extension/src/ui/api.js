@@ -1,7 +1,7 @@
 // UI-side helpers: talking to the service worker, reading state reactively, opening URLs.
 
 import { useEffect, useLayoutEffect, useState } from '../vendor/preact-htm.js';
-import { MSG, STATE_KEY, WINDOW_MAP_KEY } from '../shared/constants.js';
+import { KEEP_ALIVE_KEY, MSG, PARKED_KEY, STATE_KEY, WINDOW_MAP_KEY } from '../shared/constants.js';
 import { normalizeState, normalizeUrl } from '../shared/model.js';
 
 export const t = (key, ...subs) => chrome.i18n.getMessage(key, subs.map(String)) || key;
@@ -28,7 +28,7 @@ export function useStore() {
     const load = async () => {
       const [local, session, win] = await Promise.all([
         chrome.storage.local.get(STATE_KEY),
-        chrome.storage.session.get(WINDOW_MAP_KEY),
+        chrome.storage.session.get([WINDOW_MAP_KEY, KEEP_ALIVE_KEY, PARKED_KEY]),
         chrome.windows.getCurrent(),
       ]);
       if (!alive) return;
@@ -36,6 +36,10 @@ export function useStore() {
       setData({
         state: normalizeState(local[STATE_KEY]),
         windowMap,
+        /** tabId -> true: tabs marked to keep running while their workspace is closed. */
+        keepAlive: session[KEEP_ALIVE_KEY] ?? {},
+        /** tabId -> {wsId}: such tabs waiting (parked) in a collapsed group, they belong to another workspace. */
+        parked: session[PARKED_KEY] ?? {},
         windowId: win.id,
         currentId: windowMap[win.id] ?? null,
         isOpen: (wsId) => Object.values(windowMap).includes(wsId),
@@ -47,7 +51,7 @@ export function useStore() {
     };
     load();
     const onChange = (changes, area) => {
-      if ((area === 'local' && changes[STATE_KEY]) || (area === 'session' && changes[WINDOW_MAP_KEY])) load();
+      if ((area === 'local' && changes[STATE_KEY]) || (area === 'session' && (changes[WINDOW_MAP_KEY] || changes[KEEP_ALIVE_KEY] || changes[PARKED_KEY]))) load();
     };
     chrome.storage.onChanged.addListener(onChange);
     return () => {

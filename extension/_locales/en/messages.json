@@ -667,5 +667,20 @@
   },
   "site_calendar": {
     "message": "Google Calendar"
+  },
+  "keepAlive": {
+    "message": "Keep running when switching workspaces"
+  },
+  "keepAliveStop": {
+    "message": "Stop keeping this tab running"
+  },
+  "keepAliveOn": {
+    "message": "Keeps running when you switch workspaces"
+  },
+  "keepAliveDone": {
+    "message": "This tab keeps running when you switch workspaces"
+  },
+  "menuKeepAlive": {
+    "message": "Keep this tab running when switching workspaces"
   }
 }

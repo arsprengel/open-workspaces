@@ -448,6 +448,109 @@ async function pinSuggestCheck(port, dash) {
   ];
 }
 
+/**
+ * A tab marked to keep running survives switching away: it waits, still loaded, in a collapsed group named
+ * after its workspace, and comes back in place without a reload. Closed while waiting, it comes back
+ * reloaded (and still marked); deleting its workspace closes it.
+ */
+async function keepAliveCheck(port, dash) {
+  const K = ['https://example.com/?keep1', 'https://example.com/?keep2'];
+  const ev = (code) => dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const own = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => !t.url.startsWith(chrome.runtime.getURL('')));
+    ${code}
+  })()`);
+  const s = await ev(`
+    const win = await chrome.windows.create({ url: ${JSON.stringify(K)}, focused: false });
+    await sleep(2500);
+    const { id: keep } = await call('createWorkspace', { name: 'Keep', icon: '⚡', color: '#22c55e', fromWindowId: win.id });
+    const { id: other } = await call('createWorkspace', { name: 'Other' });
+    const kept = (await chrome.tabs.query({ windowId: win.id })).find((t) => t.url === ${JSON.stringify(K[1])});
+    return { windowId: win.id, keep, other, keptId: kept.id };`);
+  const target = (await getJson(port, '/json/list')).find((x) => x.url === K[1]);
+  const page = new Cdp(target.webSocketDebuggerUrl);
+  await page.ready;
+  await page.eval(`window.__kept = 'still here'`);
+  const alive = () => page.eval(`window.__kept`).catch(() => null);
+
+  const marked = await ev(`
+    await call('setKeepAlive', { tabId: ${s.keptId}, keep: true });
+    await sleep(300);
+    const { state } = await chrome.storage.local.get('state');
+    return state.workspaces[${JSON.stringify(s.keep)}].tabs.map((t) => !!t.keepAlive).join();`);
+
+  const away = await ev(`
+    await call('openWorkspace', { id: ${JSON.stringify(s.other)}, windowId: ${s.windowId} });
+    await sleep(1200);
+    const tab = await chrome.tabs.get(${s.keptId}).catch(() => null);
+    const group = tab && tab.groupId >= 0 ? await chrome.tabGroups.get(tab.groupId) : null;
+    const urls = (await own(${s.windowId})).map((t) => t.url);
+    const { state } = await chrome.storage.local.get('state');
+    return {
+      inWindow: tab?.windowId === ${s.windowId},
+      group: group && { title: group.title, color: group.color, collapsed: group.collapsed },
+      otherClosed: !urls.includes(${JSON.stringify(K[0])}),
+      notSavedInOther: !state.workspaces[${JSON.stringify(s.other)}].tabs.some((t) => t.url === ${JSON.stringify(K[1])}),
+      last: (await chrome.tabs.query({ windowId: ${s.windowId} })).at(-1)?.id === ${s.keptId},
+    };`);
+  const aliveAway = await alive();
+
+  const back = await ev(`
+    await call('openWorkspace', { id: ${JSON.stringify(s.keep)}, windowId: ${s.windowId} });
+    await sleep(800);
+    const tabs = await own(${s.windowId});
+    const { keepAlive } = await chrome.storage.session.get('keepAlive');
+    return {
+      urls: tabs.map((t) => t.pendingUrl || t.url).join(),
+      sameTab: tabs[1]?.id === ${s.keptId},
+      ungrouped: tabs.every((t) => t.groupId === -1),
+      groupsLeft: (await chrome.tabGroups.query({ windowId: ${s.windowId} })).length,
+      stillMarked: !!keepAlive?.[${s.keptId}],
+    };`);
+  const aliveBack = await alive();
+  page.close();
+
+  const reopened = await ev(`
+    await call('openWorkspace', { id: ${JSON.stringify(s.other)}, windowId: ${s.windowId} });
+    await sleep(800);
+    await chrome.tabs.remove(${s.keptId});
+    await sleep(300);
+    await call('openWorkspace', { id: ${JSON.stringify(s.keep)}, windowId: ${s.windowId} });
+    await sleep(800);
+    const tabs = await own(${s.windowId});
+    const again = tabs.find((t) => (t.pendingUrl || t.url) === ${JSON.stringify(K[1])});
+    const { keepAlive } = await chrome.storage.session.get('keepAlive');
+    return { back: !!again && again.id !== ${s.keptId}, marked: !!again && !!keepAlive?.[again.id], loaded: !!again && !again.discarded, id: again?.id };`);
+
+  const deleted = await ev(`
+    await call('openWorkspace', { id: ${JSON.stringify(s.other)}, windowId: ${s.windowId} });
+    await sleep(800);
+    const parkedBefore = !!(await chrome.tabs.get(${reopened.id ?? -1}).catch(() => null))?.groupId;
+    await call('deleteWorkspace', { id: ${JSON.stringify(s.keep)} });
+    await sleep(500);
+    const gone = !(await chrome.tabs.get(${reopened.id ?? -1}).catch(() => null));
+    const groupsLeft = (await chrome.tabGroups.query({ windowId: ${s.windowId} })).length;
+    await chrome.windows.remove(${s.windowId});
+    await call('deleteWorkspace', { id: ${JSON.stringify(s.other)} });
+    return { parkedBefore, gone, groupsLeft };`);
+
+  return [
+    { name: 'keep-alive mark is saved with the tab', ok: marked === 'false,true', detail: marked },
+    { name: 'switching away parks the kept tab in a collapsed group named after its workspace', ok: away.inWindow && away.last && away.group?.title === '⚡ Keep' && away.group.collapsed && away.group.color === 'green', detail: JSON.stringify(away) },
+    { name: 'the other tabs close and the parked tab is not saved into the new workspace', ok: away.otherClosed && away.notSavedInOther, detail: JSON.stringify(away) },
+    { name: 'the parked tab keeps running (no reload)', ok: aliveAway === 'still here', detail: String(aliveAway) },
+    { name: 'switching back returns the same tab in place, out of the group', ok: back.urls === K.join() && back.sameTab && back.ungrouped && back.groupsLeft === 0 && back.stillMarked, detail: JSON.stringify(back) },
+    { name: 'the returned tab was never reloaded', ok: aliveBack === 'still here', detail: String(aliveBack) },
+    { name: 'a kept tab closed while parked comes back loaded and still marked', ok: reopened.back && reopened.marked && reopened.loaded, detail: JSON.stringify(reopened) },
+    { name: 'deleting the workspace closes its parked tab', ok: deleted.gone && deleted.groupsLeft === 0, detail: JSON.stringify(deleted) },
+  ];
+}
+
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
 function dropOnCardCheck(cdp) {
   return cdp.eval(`(async () => {
@@ -728,6 +831,7 @@ async function main() {
     const dashText = await pages.dashboard.eval('document.body.innerText');
     checks.push({ name: 'dashboard lists workspaces', ok: dashText.includes('Alpha') && dashText.includes('Beta'), detail: dashText.slice(0, 200) });
     checks.push(...(await popupUploadCheck(port, pages.popup, pages.dashboard)));
+    checks.push(...(await keepAliveCheck(port, pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');
 

@@ -113,7 +113,7 @@ function HomeUnsaved({ store }) {
   const keepPinned = store.state.settings.keepPinned;
   const live = useWindowTabs(store.windowId).filter((tab) => !isHomeUrl(tab.pendingUrl || tab.url));
   const pinned = keepPinned ? live.filter((tab) => tab.pinned) : [];
-  const tabs = live.filter((tab) => !isWindowFixture(tab, keepPinned) && !isNewTabUrl(tab.pendingUrl || tab.url));
+  const tabs = live.filter((tab) => !isWindowFixture(tab, keepPinned, store.parked) && !isNewTabUrl(tab.pendingUrl || tab.url));
   const focus = (tab) => chrome.tabs.update(tab.id, { active: true });
   return html`<div class="detail">
     <div class="detail-body">
