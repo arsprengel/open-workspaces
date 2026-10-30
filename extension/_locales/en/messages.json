@@ -688,5 +688,25 @@
   },
   "homeOnSwitchDesc": {
     "message": "After a switch the window stays on the Open Workspaces tab, showing the workspace you opened, instead of jumping to its last used tab. That tab still loads in the background, ready to click."
+  },
+  "warmSetting": {
+    "message": "Keep the tabs of a workspace you leave open"
+  },
+  "warmDesc": {
+    "message": "They wait, still loaded, in a collapsed group at the end of the window. Come back in time and they return as they were, without reloading. Each tab closes after this long unused; one playing sound waits for it to stop."
+  },
+  "warmOff": {
+    "message": "Close right away"
+  },
+  "warmMinutes": {
+    "message": "$COUNT$ minutes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "warmHour": {
+    "message": "1 hour"
   }
 }

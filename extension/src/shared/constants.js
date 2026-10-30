@@ -16,13 +16,15 @@ export const HOME_PAGE = 'src/home/home.html';
 /** chrome.storage.session key: tabs marked to keep running while their workspace is closed (tabId -> true). */
 export const KEEP_ALIVE_KEY = 'keepAlive';
 /**
- * chrome.storage.session key: kept-alive tabs of closed workspaces, waiting (still running) in a
- * collapsed tab group at the end of some window (tabId -> {wsId, order}).
+ * chrome.storage.session key: tabs of closed workspaces waiting (still running) in a collapsed tab group
+ * at the end of some window (tabId -> {wsId, order, url, leftAt?}). Tabs marked to keep running wait
+ * until their workspace opens again; the others (with `leftAt`) close after `warmMinutes` unused.
  */
 export const PARKED_KEY = 'parked';
 /**
- * chrome.storage.local key: title and URLs of each workspace's parked group (wsId -> {title, urls}), so
- * the group is recognised again after a browser restart or extension update, when tab ids change.
+ * chrome.storage.local key: title and URLs of each workspace's parked group (wsId -> {title, urls, kept}),
+ * `kept` being the URLs of tabs marked to keep running, so the group is recognised again after a browser
+ * restart or extension update, when tab ids change.
  */
 export const PARKED_GROUPS_KEY = 'parkedGroups';
 
@@ -80,6 +82,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   homeTab: true,
   /** After a workspace switch, show the home tab (this page) instead of the workspace's last used tab. */
   homeOnSwitch: true,
+  /**
+   * Minutes the tabs of a workspace you switched away from keep running (parked in a collapsed group) in
+   * case you come back; each closes once unused that long. 0 closes them on the switch.
+   */
+  warmMinutes: 15,
   /** Tabs pinned in the browser belong to the window: they stay open when switching workspaces. */
   keepPinned: true,
   /** Offer to pin always-on sites (PIN_SITES) when one opens in an unpinned tab. */

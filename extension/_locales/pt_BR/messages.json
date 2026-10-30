@@ -688,5 +688,25 @@
   },
   "homeOnSwitchDesc": {
     "message": "Depois da troca, a janela fica na aba do Open Workspaces, mostrando o workspace que você abriu, em vez de pular para a última aba usada nele. Essa aba já carrega por trás, pronta para o clique."
+  },
+  "warmSetting": {
+    "message": "Manter abertas as abas do workspace que você deixou"
+  },
+  "warmDesc": {
+    "message": "Elas esperam, ainda carregadas, num grupo recolhido no fim da janela. Se você voltar nesse tempo, reaparecem como estavam, sem recarregar. Cada aba fecha depois desse tempo sem uso; uma aba tocando som espera o som acabar."
+  },
+  "warmOff": {
+    "message": "Fechar na hora"
+  },
+  "warmMinutes": {
+    "message": "$COUNT$ minutos",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "warmHour": {
+    "message": "1 hora"
   }
 }

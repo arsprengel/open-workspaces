@@ -6,7 +6,7 @@ import { cancelSnapshot, ensureHomeTab, isBusy, lastFocusedNormalWindow, schedul
 import { getState, setWindowWorkspace, workspaceForWindow } from './store.js';
 import { SUSPEND_ALARM, runAutoSuspend, suspendOtherTabs, suspendTabs, syncSuspendAlarm } from './suspender.js';
 import { handleMenuClick, scheduleMenuRebuild, syncKeepAliveMenu } from './menus.js';
-import { forgetTab, recognizeParkedGroups } from './keep-alive.js';
+import { PARKED_ALARM, expireParked, forgetTab, recognizeParkedGroups } from './keep-alive.js';
 import { maybeSuggestPin, pinTab } from './pin-suggest.js';
 import { KEEP_ALIVE_KEY, MSG, POPUP_INTENT_KEY, STATE_KEY } from '../shared/constants.js';
 
@@ -78,6 +78,11 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 });
 chrome.windows.onFocusChanged.addListener(() => syncKeepAliveMenu());
 
+/** Closes the tabs of closed workspaces whose wait is over, and sets the alarm for the next. */
+async function expireWaitingTabs() {
+  await expireParked((await getState()).settings.warmMinutes).catch((err) => console.warn('[open-workspaces] waiting tabs', err));
+}
+
 chrome.windows.onRemoved.addListener((windowId) => {
   cancelSnapshot(windowId);
   setWindowWorkspace(windowId, null);
@@ -91,6 +96,7 @@ chrome.windows.onCreated.addListener((win) => {
   for (const delay of [1000, 4000]) {
     setTimeout(async () => {
       await recognizeParkedGroups(win.id).catch(() => {});
+      await expireWaitingTabs();
       await actions.reconcileWindows({ onlyWindowId: win.id }).catch((err) => console.warn('[open-workspaces] reconcile', err));
     }, delay);
   }
@@ -121,6 +127,7 @@ async function boot() {
   if ((await getState()).settings.homeTab) await syncHomeTabs(true).catch((err) => console.warn('[open-workspaces] home tabs', err));
   await applyActionBehavior();
   await syncSuspendAlarm();
+  await expireWaitingTabs();
   scheduleMenuRebuild();
 }
 
@@ -138,6 +145,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (JSON.stringify(before?.settings) !== JSON.stringify(after?.settings)) {
     applyActionBehavior();
     syncSuspendAlarm();
+    if (before?.settings?.warmMinutes !== after?.settings?.warmMinutes) expireWaitingTabs();
   }
   if (before && after && before.settings?.homeTab !== after.settings?.homeTab) syncHomeTabs(after.settings.homeTab !== false);
   const menuKey = (s) => JSON.stringify((s?.order ?? []).map((id) => [id, s.workspaces[id]?.name, s.workspaces[id]?.icon, s.workspaces[id]?.archived]));
@@ -146,6 +154,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SUSPEND_ALARM) runAutoSuspend();
+  if (alarm.name === PARKED_ALARM) expireWaitingTabs();
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {

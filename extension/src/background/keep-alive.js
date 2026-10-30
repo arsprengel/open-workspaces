@@ -1,11 +1,14 @@
-// Kept-alive tabs: tabs the user marked to keep running while their workspace is closed. Switching away
-// gathers them in a collapsed tab group at the end of the window (named and colored like the workspace)
-// instead of closing them; opening the workspace takes them back out, in place and without a reload.
+// Parked tabs: switching away from a workspace gathers its tabs in a collapsed tab group at the end of the
+// window (named and colored like the workspace) instead of closing them; opening the workspace takes them
+// back out, in place and without a reload. Tabs the user marked to keep running wait for as long as it
+// takes; the others only for a while (settings.warmMinutes), in case the switch was a quick look elsewhere.
 // Marks and parked tabs are tab ids, so they live in storage.session. Each parked group's title and URLs
 // are also kept in storage.local, to recognise the group once ids change (browser restart, extension update).
 
-import { nearestGroupColor, recognizeParked } from '../shared/model.js';
+import { dueParked, nearestGroupColor, recognizeParked, reparkEntries } from '../shared/model.js';
 import { KEEP_ALIVE_KEY, PARKED_GROUPS_KEY, PARKED_KEY } from '../shared/constants.js';
+
+export const PARKED_ALARM = 'ow-parked';
 
 let queue = Promise.resolve();
 
@@ -25,7 +28,7 @@ const read = async (area, key) => (await chrome.storage[area].get(key))[key] ?? 
 
 /** tabId -> true for every tab marked to keep running. */
 export const getMarks = () => read('session', KEEP_ALIVE_KEY);
-/** tabId -> {wsId, order} for every parked tab. */
+/** tabId -> {wsId, order, url, leftAt?} for every parked tab (see PARKED_KEY). */
 export const getParked = () => read('session', PARKED_KEY);
 
 export function markTabs(tabIds, keep = true) {
@@ -39,11 +42,14 @@ export function markTabs(tabIds, keep = true) {
 
 const groupTitle = (ws) => `${ws.icon ? `${ws.icon} ` : ''}${ws.name || chrome.i18n.getMessage('untitled') || 'Workspace'}`;
 
+const pageOf = (tab) => tab.pendingUrl || tab.url;
+
 /**
- * Gathers the kept-alive tabs leaving `ws` into a collapsed group at the end of their window.
+ * Gathers tabs leaving `ws` into a collapsed group at the end of their window. Those in `marks` wait until
+ * the workspace opens again, the others only for a while. `orders` holds each tab's place in the workspace.
  * @returns {Promise<number[]>} the ids parked; empty if the browser refused (the caller closes them then).
  */
-export async function parkTabs(ws, tabs) {
+export async function parkTabs(ws, tabs, { marks = {}, orders = null } = {}) {
   if (!ws || !tabs.length || !chrome.tabGroups) return [];
   const ids = tabs.map((t) => t.id);
   const title = groupTitle(ws);
@@ -55,20 +61,25 @@ export async function parkTabs(ws, tabs) {
     console.warn('[open-workspaces] could not park tabs', err);
     return [];
   }
-  // Memory saving may discard background tabs; these are meant to keep running.
-  for (const id of ids) chrome.tabs.update(id, { autoDiscardable: false }).catch(() => {});
-  await update('session', PARKED_KEY, (parked) => tabs.forEach((t, order) => (parked[t.id] = { wsId: ws.id, order })));
-  await update('local', PARKED_GROUPS_KEY, (groups) => (groups[ws.id] = { title, urls: tabs.map((t) => t.pendingUrl || t.url) }));
+  // Memory saving may discard background tabs; marked ones are meant to keep running. The others it may
+  // still free when memory runs low: they come back with a reload then.
+  for (const id of ids) if (marks[id]) chrome.tabs.update(id, { autoDiscardable: false }).catch(() => {});
+  const leftAt = Date.now();
+  await update('session', PARKED_KEY, (parked) =>
+    tabs.forEach((t, i) => (parked[t.id] = { wsId: ws.id, order: orders?.[i] ?? i, url: pageOf(t), ...(!marks[t.id] && { leftAt }) })),
+  );
+  const kept = tabs.filter((t) => marks[t.id]).map(pageOf);
+  await update('local', PARKED_GROUPS_KEY, (groups) => (groups[ws.id] = { title, urls: tabs.map(pageOf), kept }));
   return ids;
 }
 
-/** The parked tabs of `wsId` (`{tabId, order}`), dropped from the registry: the caller brings them back. */
+/** The parked tabs of `wsId` (`{tabId, order, url}`), dropped from the registry: the caller brings them back. */
 export async function takeParked(wsId) {
   const taken = [];
   await update('session', PARKED_KEY, (parked) => {
     for (const [id, p] of Object.entries(parked)) {
       if (p.wsId !== wsId) continue;
-      taken.push({ tabId: Number(id), order: p.order });
+      taken.push({ tabId: Number(id), order: p.order, url: p.url });
       delete parked[id];
     }
   });
@@ -76,11 +87,22 @@ export async function takeParked(wsId) {
   return taken;
 }
 
-/** The parked tabs of `wsId` (`{tabId, order}`), left in place. */
+/** The parked tabs of `wsId` (`{tabId, order, url}`), left in place. */
 export async function parkedOf(wsId) {
   return Object.entries(await getParked())
     .filter(([, p]) => p.wsId === wsId)
-    .map(([id, p]) => ({ tabId: Number(id), order: p.order }));
+    .map(([id, p]) => ({ tabId: Number(id), order: p.order, url: p.url }));
+}
+
+/** Closes the tabs parked only for a while once they're due (see dueParked) and sets the alarm for the next. */
+export async function expireParked(minutes) {
+  const parked = await getParked();
+  const waiting = Object.values(parked).some((p) => p.leftAt);
+  const tabs = waiting ? (await chrome.tabs.query({})).filter((t) => parked[t.id]?.leftAt) : [];
+  const { close, next } = dueParked(parked, tabs, minutes, Date.now());
+  if (close.length) await closeParked((tabId) => close.includes(tabId));
+  if (next == null) await chrome.alarms.clear(PARKED_ALARM);
+  else await chrome.alarms.create(PARKED_ALARM, { when: next });
 }
 
 /** Moves a parked tab out of its group to the end of `windowId`. False if the tab is gone. */
@@ -155,12 +177,16 @@ export async function recognizeParkedGroups(windowId = null) {
   const pending = Object.fromEntries(Object.entries(records).filter(([wsId]) => !tracked.has(wsId)));
   if (!Object.keys(pending).length) return;
   const groups = [];
+  const pages = new Map();
   for (const group of await chrome.tabGroups.query(windowId == null ? {} : { windowId })) {
-    const tabs = await chrome.tabs.query({ groupId: group.id });
-    groups.push({ title: group.title ?? '', tabs: tabs.map((t) => ({ id: t.id, url: t.pendingUrl || t.url })) });
+    const tabs = (await chrome.tabs.query({ groupId: group.id })).map((t) => ({ id: t.id, url: pageOf(t) }));
+    for (const t of tabs) pages.set(t.id, t.url);
+    groups.push({ title: group.title ?? '', tabs });
   }
+  const now = Date.now();
   for (const { wsId, tabIds } of recognizeParked(groups, pending)) {
-    await update('session', PARKED_KEY, (p) => tabIds.forEach((id, order) => (p[id] = { wsId, order })));
-    await markTabs(tabIds);
+    const { entries, kept } = reparkEntries(wsId, tabIds.map((id) => ({ id, url: pages.get(id) })), pending[wsId], now);
+    await update('session', PARKED_KEY, (p) => Object.assign(p, entries));
+    if (kept.length) await markTabs(kept);
   }
 }
