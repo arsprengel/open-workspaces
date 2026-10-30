@@ -123,17 +123,68 @@ export function serializeTab(tab, keepAlive = false) {
 }
 
 /**
- * Matches the tabs parked for a workspace (`{tabId, order}`, order = position when they left) to its
- * saved tabs: the n-th kept-alive saved tab gets the n-th parked tab. Parked tabs without a saved tab
- * left (the list was edited meanwhile) come back as `leftover` rather than being lost.
+ * Matches the tabs parked for a workspace (`{tabId, order, url}`: their place and page when they left) to
+ * its saved tabs: first the same place showing the same page, then the same page elsewhere (the list was
+ * edited meanwhile), then, in order, the kept-alive saved tabs left (tabs recognised after a restart carry
+ * no page). Parked tabs without a saved tab left come back as `leftover` rather than being lost.
  */
 export function pairParked(savedTabs, parked) {
-  const queue = [...parked].sort((a, b) => a.order - b.order).map((p) => p.tabId);
   const byIndex = new Map();
+  const samePage = (i, p) => p.url != null && !byIndex.has(i) && !!savedTabs[i] && normalizeUrl(savedTabs[i].url) === normalizeUrl(p.url);
+  const elsewhere = [];
+  for (const p of [...parked].sort((a, b) => a.order - b.order)) {
+    if (samePage(p.order, p)) byIndex.set(p.order, p.tabId);
+    else elsewhere.push(p);
+  }
+  const queue = [];
+  for (const p of elsewhere) {
+    const i = savedTabs.findIndex((_t, j) => samePage(j, p));
+    if (i >= 0) byIndex.set(i, p.tabId);
+    else queue.push(p.tabId);
+  }
   savedTabs.forEach((t, i) => {
-    if (t.keepAlive && queue.length) byIndex.set(i, queue.shift());
+    if (t.keepAlive && !byIndex.has(i) && queue.length) byIndex.set(i, queue.shift());
   });
   return { byIndex, leftover: queue };
+}
+
+/**
+ * Which tabs parked only for a while (`leftAt` set, i.e. not marked to keep running) are due to close:
+ * those unused for `minutes` since they left or were last looked at. One playing sound or in front waits.
+ * @returns {{close:number[], next:number|null}} `next`: when to look again, null when nothing waits.
+ */
+export function dueParked(parked, tabs, minutes, now) {
+  const close = [];
+  let next = null;
+  for (const tab of tabs) {
+    const leftAt = parked[tab.id]?.leftAt;
+    if (!leftAt) continue;
+    const due = minutes > 0 ? Math.max(leftAt, tab.lastAccessed ?? 0) + minutes * 60_000 : now;
+    if (due <= now && !tab.audible && !tab.active) {
+      close.push(tab.id);
+      continue;
+    }
+    const at = due <= now ? now + 60_000 : due;
+    next = next == null ? at : Math.min(next, at);
+  }
+  return { close, next };
+}
+
+/**
+ * Parked entries for a group recognised after a restart (see recognizeParked): tabs whose page the record
+ * lists as kept alive stay marked, the others wait afresh from `now`. Older records only held marked tabs.
+ * @returns {{entries:Record<number, object>, kept:number[]}}
+ */
+export function reparkEntries(wsId, tabs, record, now) {
+  const kept = record.kept ? new Set(record.kept.map(normalizeUrl)) : null;
+  const entries = {};
+  const marked = [];
+  tabs.forEach((t, order) => {
+    const keep = !kept || kept.has(normalizeUrl(t.url));
+    entries[t.id] = { wsId, order, url: t.url, ...(!keep && { leftAt: now }) };
+    if (keep) marked.push(t.id);
+  });
+  return { entries, kept: marked };
 }
 
 const GROUP_PALETTE = {

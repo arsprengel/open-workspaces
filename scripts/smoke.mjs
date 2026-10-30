@@ -106,6 +106,9 @@ async function scenario() {
   };
   const U = ['https://example.com/?a', 'https://example.com/?b', 'https://example.com/?c'];
 
+  // Tabs left behind by a switch close right away here; warmCheck covers them waiting for a while.
+  await call('updateSettings', { patch: { warmMinutes: 0 } });
+
   // 1. Save a window as workspace A
   const win = await chrome.windows.create({ url: U, focused: false });
   await sleep(500);
@@ -622,6 +625,104 @@ async function homeOnSwitchCheck(dash) {
   ];
 }
 
+/**
+ * The tabs of a workspace you switch away from wait, still running, in a collapsed group; coming back puts
+ * them back in place without a reload. Unused for the wait they close, except tabs marked to keep running.
+ */
+async function warmCheck(port, dash) {
+  const W = ['https://example.com/?warm1', 'https://example.com/?warm2'];
+  const ev = (code) => dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const own = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => !t.url.startsWith(chrome.runtime.getURL('')));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    ${code}
+  })()`);
+  const s = await ev(`
+    await call('updateSettings', { patch: { warmMinutes: 15 } });
+    const win = await chrome.windows.create({ url: ${JSON.stringify(W)}, focused: false });
+    await sleep(2500);
+    const { id: warm } = await call('createWorkspace', { name: 'Warm', icon: '🔥', color: '#f97316', fromWindowId: win.id });
+    const { id: other } = await call('createWorkspace', { name: 'Elsewhere' });
+    return { windowId: win.id, warm, other, ids: (await own(win.id)).map((t) => t.id) };`);
+  const { windowId, warm, other, ids } = s;
+  const target = (await getJson(port, '/json/list')).find((x) => x.url === W[1]);
+  const page = new Cdp(target.webSocketDebuggerUrl);
+  await page.ready;
+  await page.eval(`window.__warm = 'still here'`);
+  const alive = () => page.eval(`window.__warm`).catch(() => null);
+
+  const away = await ev(`
+    await call('openWorkspace', { id: ${JSON.stringify(other)}, windowId: ${windowId} });
+    await sleep(1000);
+    const tabs = await Promise.all(${JSON.stringify(ids)}.map(get));
+    const group = tabs[0]?.groupId >= 0 ? await chrome.tabGroups.get(tabs[0].groupId) : null;
+    const { state } = await chrome.storage.local.get('state');
+    return {
+      waiting: tabs.every((t) => t && t.windowId === ${windowId} && t.groupId >= 0 && t.groupId === tabs[0].groupId),
+      collapsed: !!group?.collapsed && group.title === '🔥 Warm',
+      notInOther: !state.workspaces[${JSON.stringify(other)}].tabs.some((t) => t.url.includes('warm')),
+      alarm: !!(await chrome.alarms.get('ow-parked')),
+    };`);
+  const aliveAway = await alive();
+
+  const back = await ev(`
+    await call('openWorkspace', { id: ${JSON.stringify(warm)}, windowId: ${windowId} });
+    await sleep(800);
+    const tabs = await own(${windowId});
+    return {
+      same: tabs.map((t) => t.id).join() === ${JSON.stringify(ids.join())},
+      ungrouped: tabs.every((t) => t.groupId === -1),
+      groups: (await chrome.tabGroups.query({ windowId: ${windowId} })).length,
+    };`);
+  const aliveBack = await alive();
+  page.close();
+
+  // A short wait runs out: the unmarked tab closes, the one marked to keep running stays.
+  const expired = await ev(`
+    await call('setKeepAlive', { tabId: ${ids[0]}, keep: true });
+    await call('openWorkspace', { id: ${JSON.stringify(other)}, windowId: ${windowId} });
+    await sleep(600);
+    await call('updateSettings', { patch: { warmMinutes: 0.05 } });
+    await sleep(6000);
+    const [marked, unmarked] = await Promise.all(${JSON.stringify(ids)}.map(get));
+    await call('openWorkspace', { id: ${JSON.stringify(warm)}, windowId: ${windowId} });
+    await sleep(800);
+    const tabs = await own(${windowId});
+    return {
+      markedStays: marked?.groupId >= 0,
+      unmarkedClosed: !unmarked,
+      backInOrder: tabs.map((t) => t.pendingUrl || t.url).join() === ${JSON.stringify(W.join())} && tabs[0].id === ${ids[0]},
+    };`);
+
+  // Turned off: the tabs waiting close at once.
+  const off = await ev(`
+    await call('setKeepAlive', { tabId: ${ids[0]}, keep: false });
+    await call('updateSettings', { patch: { warmMinutes: 15 } });
+    const before = (await own(${windowId})).map((t) => t.id);
+    await call('openWorkspace', { id: ${JSON.stringify(other)}, windowId: ${windowId} });
+    await sleep(600);
+    const waited = (await Promise.all(before.map(get))).every((t) => t?.groupId >= 0);
+    await call('updateSettings', { patch: { warmMinutes: 0 } });
+    await sleep(800);
+    const gone = (await Promise.all(before.map(get))).every((t) => !t);
+    await chrome.windows.remove(${windowId});
+    for (const id of [${JSON.stringify(warm)}, ${JSON.stringify(other)}]) await call('deleteWorkspace', { id });
+    return { waited, gone };`);
+
+  const detail = JSON.stringify({ away, aliveAway, back, aliveBack, expired, off });
+  return [
+    { name: 'tabs of the workspace left behind wait, still running, in its collapsed group', ok: away.waiting && away.collapsed && away.notInOther && away.alarm && aliveAway === 'still here', detail },
+    { name: 'coming back puts the waiting tabs back in place without a reload', ok: back.same && back.ungrouped && back.groups === 0 && aliveBack === 'still here', detail },
+    { name: 'waiting tabs close once unused for the wait, marked ones stay', ok: expired.markedStays && expired.unmarkedClosed && expired.backInOrder, detail },
+    { name: 'turning waiting off closes the waiting tabs', ok: off.waited && off.gone, detail },
+  ];
+}
+
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
 function dropOnCardCheck(cdp) {
   return cdp.eval(`(async () => {
@@ -698,7 +799,7 @@ async function captureScreens(port, extId, dir, dash, full) {
 
   const demoWin = await dash.eval(`(async () => {
     const call = (action, payload) => chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
-    await call('updateSettings', { patch: { lazyLoadTabs: false, suspend: { mode: 'manual' } } });
+    await call('updateSettings', { patch: { lazyLoadTabs: false, warmMinutes: 15, suspend: { mode: 'manual' } } });
     const win = await chrome.windows.create({ focused: true, width: 1440, height: 900 });
     await call('openWorkspace', { id: 'demo-1', windowId: win.id });
     return win.id;
@@ -903,6 +1004,7 @@ async function main() {
     checks.push({ name: 'dashboard lists workspaces', ok: dashText.includes('Alpha') && dashText.includes('Beta'), detail: dashText.slice(0, 200) });
     checks.push(...(await popupUploadCheck(port, pages.popup, pages.dashboard)));
     checks.push(...(await keepAliveCheck(port, pages.dashboard)));
+    checks.push(...(await warmCheck(port, pages.dashboard)));
     checks.push(...(await homeOnSwitchCheck(pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');

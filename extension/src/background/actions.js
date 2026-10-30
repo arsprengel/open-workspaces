@@ -4,7 +4,7 @@
 import { clearWindowMap, getState, getWindowMap, mutate, replaceState, setWindowWorkspace, unbindWorkspace, windowForWorkspace, workspaceForWindow } from './store.js';
 import { discardWhenReady, ensureHomeTab, homeUrl, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
 import {
-  closeParked, dropParkedRecord, getMarks, getParked, markTabs, parkTabs, parkedOf, tidyParkedGroups, unregisterParked,
+  closeParked, dropParkedRecord, expireParked, getMarks, getParked, markTabs, parkTabs, parkedOf, tidyParkedGroups, unregisterParked,
 } from './keep-alive.js';
 import {
   applyImport, buildExport, cleanImage, isNewTabUrl, isWindowFixture, keepAliveMatches, makeSection, makeWorkspace, matchWindows,
@@ -152,10 +152,13 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
     const ids = await restoreTabs(windowId, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned, background: home != null });
     // The home tab, kept pinned tabs and other workspaces' parked tabs belong to the window, so they survive the swap.
     const leaving = oldTabs.filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
-    // Tabs marked to keep running wait in a collapsed group instead of closing (pinned tabs can't be grouped).
+    // Leaving tabs wait in a collapsed group instead of closing (pinned tabs can't be grouped): those marked
+    // to keep running until the workspace is back, the others for a while, in case this is a quick look.
     const marks = await getMarks();
-    const keptAlive = new Set(await parkTabs(oldWsId && workspaces[oldWsId], leaving.filter((t) => marks[t.id] && !t.pinned)));
-    const closing = leaving.filter((t) => !keptAlive.has(t.id)).map((t) => t.id);
+    const waits = (t) => !t.pinned && (marks[t.id] || (settings.warmMinutes > 0 && !isNewTabUrl(t.pendingUrl || t.url)));
+    const orders = leaving.flatMap((t, i) => (waits(t) ? [i] : []));
+    const waiting = new Set(await parkTabs(oldWsId && workspaces[oldWsId], orders.map((i) => leaving[i]), { marks, orders }));
+    const closing = leaving.filter((t) => !waiting.has(t.id)).map((t) => t.id);
     if (closing.length) await chrome.tabs.remove(closing).catch(() => {});
     await tidyParkedGroups(windowId);
     if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true, activate: home != null });
@@ -164,6 +167,7 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
   await touchOpened(wsId);
   await snapshotWindow(windowId);
   discardWhenReady(lazyIds);
+  await expireParked(settings.warmMinutes);
   return { windowId };
 }
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   applyImport, buildExport, cleanImage, emptyState, isExcluded, isHomeUrl, isNewTabUrl, isWindowFixture, keepAliveMatches,
   makeWorkspace, matchWindows, nearestGroupColor, normalizeState, overlapScore, pairParked, parseExclusions, pinSuggestionFor, realTabCount,
-  recognizeParked, search,
+  recognizeParked, reparkEntries, search, dueParked,
   serializeTab, suggestedSite,
 } from '../extension/src/shared/model.js';
 
@@ -256,6 +256,46 @@ test('pairParked gives the n-th kept-alive saved tab the n-th parked tab', () =>
   assert.deepEqual([...pairParked(saved, []).byIndex], []);
 });
 
+test('pairParked puts tabs that waited back in their place, by place and page', () => {
+  const saved = [{ url: 'https://a.com/' }, { url: 'https://b.com/' }, { url: 'https://c.com/', keepAlive: true }];
+  const parked = [{ tabId: 3, order: 2, url: 'https://c.com/' }, { tabId: 1, order: 0, url: 'https://a.com/#x' }, { tabId: 2, order: 1, url: 'https://b.com/' }];
+  assert.deepEqual([...pairParked(saved, parked).byIndex].sort(), [[0, 1], [1, 2], [2, 3]]);
+  // A saved tab removed meanwhile: the others still find their page, the orphan is handed back.
+  const edited = pairParked([saved[1], saved[2]], parked);
+  assert.deepEqual([...edited.byIndex].sort(), [[0, 2], [1, 3]]);
+  assert.deepEqual(edited.leftover, [1]);
+});
+
+test('dueParked closes tabs left and unused for a while, never one playing sound or in front', () => {
+  const min = 60_000;
+  const now = 100 * min;
+  const left = now - 20 * min;
+  const parked = { 1: { wsId: 'a', leftAt: left }, 2: { wsId: 'a', leftAt: left }, 3: { wsId: 'a', leftAt: left }, 4: { wsId: 'a', leftAt: left }, 5: { wsId: 'a' }, 6: { wsId: 'a', leftAt: now - 5 * min } };
+  const tabs = [
+    { id: 1, lastAccessed: now - 30 * min },
+    { id: 2, lastAccessed: now - 10 * min },
+    { id: 3, audible: true },
+    { id: 4, active: true },
+    { id: 5, lastAccessed: 0 },
+    { id: 6 },
+  ];
+  const { close, next } = dueParked(parked, tabs, 15, now);
+  assert.deepEqual(close, [1]);
+  assert.equal(next, now + min, 'tabs playing sound or in front are looked at again a minute later');
+  assert.deepEqual(dueParked(parked, tabs, 0, now).close, [1, 2, 6], 'turned off: every waiting tab goes, except those playing or in front');
+  assert.deepEqual(dueParked({}, tabs, 15, now), { close: [], next: null });
+});
+
+test('reparkEntries keeps marked tabs running after a restart and gives the others a fresh wait', () => {
+  const tabs = [{ id: 7, url: 'https://chat.example/' }, { id: 8, url: 'https://doc.example/' }];
+  const record = { title: 'A', urls: ['https://chat.example/', 'https://doc.example/'], kept: ['https://chat.example/#x'] };
+  assert.deepEqual(reparkEntries('a', tabs, record, 500), {
+    entries: { 7: { wsId: 'a', order: 0, url: 'https://chat.example/' }, 8: { wsId: 'a', order: 1, url: 'https://doc.example/', leftAt: 500 } },
+    kept: [7],
+  });
+  assert.deepEqual(reparkEntries('a', tabs, { title: 'A', urls: record.urls }, 500).kept, [7, 8], 'older records only held marked tabs');
+});
+
 test('keepAliveMatches finds the live tabs behind kept-alive saved tabs', () => {
   const live = [{ id: 1, url: 'https://a.com/' }, { id: 2, url: 'https://b.com/#x' }, { id: 3, url: 'https://b.com/' }, { id: 4, pendingUrl: 'https://c.com/', url: '' }];
   const saved = [{ url: 'https://a.com/' }, { url: 'https://b.com/', keepAlive: true }, { url: 'https://b.com/', keepAlive: true }, { url: 'https://c.com/', keepAlive: true }, { url: 'https://gone.com/', keepAlive: true }];
@@ -265,5 +305,7 @@ test('keepAliveMatches finds the live tabs behind kept-alive saved tabs', () => 
 
 test('switching workspaces shows the Open Workspaces page by default', () => {
   assert.equal(normalizeState({}).settings.homeOnSwitch, true);
+  assert.equal(normalizeState({}).settings.warmMinutes, 15);
+  assert.equal(normalizeState({ settings: { warmMinutes: 0 } }).settings.warmMinutes, 0);
   assert.equal(normalizeState({ settings: { homeOnSwitch: false } }).settings.homeOnSwitch, false);
 });

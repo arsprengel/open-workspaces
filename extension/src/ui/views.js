@@ -742,6 +742,16 @@ export function SettingsView({ state }) {
         </div>
       </div>
       <div class="setting">
+        <div><div class="label">${t('warmSetting')}</div><div class="desc">${t('warmDesc')}</div></div>
+        <div class="control">
+          <select class="select" style="width:auto" value=${String(s.warmMinutes)} aria-label=${t('warmSetting')} onChange=${(e) => set({ warmMinutes: Number(e.target.value) })}>
+            <option value="0">${t('warmOff')}</option>
+            ${[5, 15, 30].map((m) => html`<option value=${String(m)}>${t('warmMinutes', String(m))}</option>`)}
+            <option value="60">${t('warmHour')}</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting">
         <div><div class="label">${t('homeTabSetting')}</div><div class="desc">${t('homeTabDesc')}</div></div>
         <div class="control"><${Switch} checked=${s.homeTab} label=${t('homeTabSetting')} onChange=${(v) => set({ homeTab: v })} /></div>
       </div>
