@@ -216,11 +216,15 @@ export function nearestGroupColor(hex) {
 export function recognizeParked(groups, records) {
   const found = [];
   const taken = new Set();
+  // Parked groups carry no title now, so several records can share one: the pages tell them apart.
+  const covers = (r, group) => {
+    const urls = new Set(r.urls.map(normalizeUrl));
+    return group.tabs.every((t) => urls.has(normalizeUrl(t.url)));
+  };
   for (const group of groups) {
-    const entry = Object.entries(records).find(([wsId, r]) => !taken.has(wsId) && r.title === group.title);
-    if (!entry || !group.tabs.length) continue;
-    const urls = new Set(entry[1].urls.map(normalizeUrl));
-    if (!group.tabs.every((t) => urls.has(normalizeUrl(t.url)))) continue;
+    if (!group.tabs.length) continue;
+    const entry = Object.entries(records).find(([wsId, r]) => !taken.has(wsId) && r.title === group.title && covers(r, group));
+    if (!entry) continue;
     taken.add(entry[0]);
     found.push({ wsId: entry[0], tabIds: group.tabs.map((t) => t.id) });
   }

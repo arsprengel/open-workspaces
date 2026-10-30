@@ -243,6 +243,16 @@ test('recognizeParked finds parked groups by recorded title and URLs', () => {
   assert.deepEqual(recognizeParked([{ title: 'Beta', tabs: [] }], records), []);
 });
 
+test('recognizeParked tells untitled parked groups apart by their pages', () => {
+  const records = { a: { title: '', urls: ['https://a.example/'] }, b: { title: '', urls: ['https://b.example/', 'https://b.example/2'] } };
+  const groups = [
+    { title: '', tabs: [{ id: 1, url: 'https://b.example/2' }, { id: 2, url: 'https://b.example/' }] },
+    { title: '', tabs: [{ id: 3, url: 'https://a.example/' }] },
+    { title: '', tabs: [{ id: 4, url: 'https://mine.example/' }] },
+  ];
+  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'b', tabIds: [1, 2] }, { wsId: 'a', tabIds: [3] }]);
+});
+
 test('pairParked gives the n-th kept-alive saved tab the n-th parked tab', () => {
   const saved = [{ url: 'a' }, { url: 'b', keepAlive: true }, { url: 'c' }, { url: 'd', keepAlive: true }];
   const parked = [{ tabId: 9, order: 3 }, { tabId: 7, order: 1 }];

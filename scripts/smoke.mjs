@@ -545,7 +545,7 @@ async function keepAliveCheck(port, dash) {
 
   return [
     { name: 'keep-alive mark is saved with the tab', ok: marked === 'false,true', detail: marked },
-    { name: 'switching away parks the kept tab in a collapsed group named after its workspace', ok: away.inWindow && away.last && away.group?.title === '⚡ Keep' && away.group.collapsed && away.group.color === 'green', detail: JSON.stringify(away) },
+    { name: 'switching away parks the kept tab in a collapsed, untitled group in its workspace color', ok: away.inWindow && away.last && away.group?.title === '' && away.group.collapsed && away.group.color === 'green', detail: JSON.stringify(away) },
     { name: 'the other tabs close and the parked tab is not saved into the new workspace', ok: away.otherClosed && away.notSavedInOther, detail: JSON.stringify(away) },
     { name: 'the parked tab keeps running (no reload)', ok: aliveAway === 'still here', detail: String(aliveAway) },
     { name: 'switching back returns the same tab in place, out of the group', ok: back.urls === K.join() && back.sameTab && back.ungrouped && back.groupsLeft === 0 && back.stillMarked, detail: JSON.stringify(back) },
@@ -664,7 +664,7 @@ async function warmCheck(port, dash) {
     const { state } = await chrome.storage.local.get('state');
     return {
       waiting: tabs.every((t) => t && t.windowId === ${windowId} && t.groupId >= 0 && t.groupId === tabs[0].groupId),
-      collapsed: !!group?.collapsed && group.title === '🔥 Warm',
+      collapsed: !!group?.collapsed && group.title === '' && group.color === 'orange',
       notInOther: !state.workspaces[${JSON.stringify(other)}].tabs.some((t) => t.url.includes('warm')),
       alarm: !!(await chrome.alarms.get('ow-parked')),
     };`);
@@ -716,11 +716,50 @@ async function warmCheck(port, dash) {
 
   const detail = JSON.stringify({ away, aliveAway, back, aliveBack, expired, off });
   return [
-    { name: 'tabs of the workspace left behind wait, still running, in its collapsed group', ok: away.waiting && away.collapsed && away.notInOther && away.alarm && aliveAway === 'still here', detail },
+    { name: 'tabs of the workspace left behind wait, still running, in a collapsed dot in its color', ok: away.waiting && away.collapsed && away.notInOther && away.alarm && aliveAway === 'still here', detail },
     { name: 'coming back puts the waiting tabs back in place without a reload', ok: back.same && back.ungrouped && back.groups === 0 && aliveBack === 'still here', detail },
     { name: 'waiting tabs close once unused for the wait, marked ones stay', ok: expired.markedStays && expired.unmarkedClosed && expired.backInOrder, detail },
     { name: 'turning waiting off closes the waiting tabs', ok: off.waited && off.gone, detail },
   ];
+}
+
+/** A group parked with the workspace's name (older versions) loses it once recognised after an extension update. */
+function namedParkedGroupCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const win = await chrome.windows.create({ url: 'https://example.com/?legacy', focused: false });
+    await sleep(2000);
+    const { id: legacy } = await call('createWorkspace', { name: 'Legacy', fromWindowId: win.id });
+    const { id: other } = await call('createWorkspace', { name: 'Legacy other' });
+    const tab = (await chrome.tabs.query({ windowId: win.id })).find((t) => t.url === 'https://example.com/?legacy');
+    await call('setKeepAlive', { tabId: tab.id, keep: true });
+    await call('openWorkspace', { id: other, windowId: win.id });
+    await sleep(800);
+    const groupId = (await chrome.tabs.get(tab.id)).groupId;
+    const untitled = (await chrome.tabGroups.get(groupId)).title === '';
+    // As an older version left it, and as an update finds it: named group, no record of the tab id.
+    await chrome.tabGroups.update(groupId, { title: '🧪 Legacy' });
+    const { parkedGroups } = await chrome.storage.local.get('parkedGroups');
+    parkedGroups[legacy].title = '🧪 Legacy';
+    await chrome.storage.local.set({ parkedGroups });
+    const { parked } = await chrome.storage.session.get('parked');
+    delete parked[tab.id];
+    await chrome.storage.session.set({ parked });
+    const { recognizeParkedGroups } = await import('/src/background/keep-alive.js');
+    await recognizeParkedGroups(win.id);
+    const after = (await chrome.tabGroups.get(groupId)).title;
+    const tracked = !!(await chrome.storage.session.get('parked')).parked[tab.id];
+    const record = (await chrome.storage.local.get('parkedGroups')).parkedGroups[legacy]?.title;
+    await chrome.windows.remove(win.id);
+    for (const id of [legacy, other]) await call('deleteWorkspace', { id });
+    const r = { untitled, after, tracked, record };
+    return [{ name: 'parked groups are untitled, and older named ones lose the name once recognised', ok: untitled && after === '' && tracked && record === '', detail: JSON.stringify(r) }];
+  })()`);
 }
 
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
@@ -1005,6 +1044,7 @@ async function main() {
     checks.push(...(await popupUploadCheck(port, pages.popup, pages.dashboard)));
     checks.push(...(await keepAliveCheck(port, pages.dashboard)));
     checks.push(...(await warmCheck(port, pages.dashboard)));
+    checks.push(...(await namedParkedGroupCheck(pages.dashboard)));
     checks.push(...(await homeOnSwitchCheck(pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');
