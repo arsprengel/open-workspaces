@@ -13,6 +13,18 @@ export const POPUP_INTENT_KEY = 'popupIntent';
 export const PIN_ASKED_KEY = 'pinAsked';
 /** The page shown in the pinned "home" tab at the left of every window. */
 export const HOME_PAGE = 'src/home/home.html';
+/** chrome.storage.session key: tabs marked to keep running while their workspace is closed (tabId -> true). */
+export const KEEP_ALIVE_KEY = 'keepAlive';
+/**
+ * chrome.storage.session key: kept-alive tabs of closed workspaces, waiting (still running) in a
+ * collapsed tab group at the end of some window (tabId -> {wsId, order}).
+ */
+export const PARKED_KEY = 'parked';
+/**
+ * chrome.storage.local key: title and URLs of each workspace's parked group (wsId -> {title, urls}), so
+ * the group is recognised again after a browser restart or extension update, when tab ids change.
+ */
+export const PARKED_GROUPS_KEY = 'parkedGroups';
 
 /**
  * Always-on sites (mail, chat, calendar, music) that belong next to the home tab rather than in one

@@ -2,8 +2,9 @@
 
 import { getState } from './store.js';
 import { isHomeUrl, orderedWorkspaces } from '../shared/model.js';
-import { addResources, createWorkspace, moveTabs } from './actions.js';
+import { addResources, createWorkspace, moveTabs, setKeepAlive } from './actions.js';
 import { suspendOtherTabs } from './suspender.js';
+import { getMarks } from './keep-alive.js';
 
 const t = (key) => chrome.i18n.getMessage(key) || key;
 const label = (ws) => `${ws.icon ? `${ws.icon} ` : ''}${ws.name || t('untitled')}`;
@@ -29,6 +30,7 @@ async function buildMenus() {
       });
     });
 
+  await create({ id: 'ow-keep-alive', type: 'checkbox', title: t('menuKeepAlive'), contexts: ['page'], checked: await activeTabMarked() });
   await create({ id: 'ow-dashboard', title: t('menuOpenDashboard'), contexts: ['action'] });
   await create({ id: 'ow-suspend-others', title: t('menuSuspendOthers'), contexts: ['action'] });
 
@@ -47,9 +49,23 @@ async function buildMenus() {
   }
 }
 
+async function activeTabMarked() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return !!tab && !!(await getMarks())[tab.id];
+}
+
+/** The "keep running" checkbox is one item for all tabs: show the state of the tab in front. */
+export async function syncKeepAliveMenu() {
+  const checked = await activeTabMarked();
+  chrome.contextMenus.update('ow-keep-alive', { checked }, () => void chrome.runtime.lastError);
+}
+
 export async function handleMenuClick(info, tab) {
   const [kind, wsId] = String(info.menuItemId).split(':');
   switch (kind) {
+    case 'ow-keep-alive':
+      if (tab && !isHomeUrl(tab.url)) await setKeepAlive({ tabId: tab.id, keep: info.checked });
+      break;
     case 'ow-dashboard':
       await chrome.runtime.openOptionsPage();
       break;

@@ -38,6 +38,7 @@ const PATHS = {
   folderPlus: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14h6"/>',
   power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
   pin: '<path d="M12 17v5M9 3h6l-1 6 4 4H6l4-4z"/>',
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
   heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>',
   code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
@@ -49,12 +50,14 @@ export function Icon({ name }) {
   return html`<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: PATHS[name] ?? '' }}></svg>`;
 }
 
-export function IconButton({ icon, title, onClick, sm = false, danger = false, ...rest }) {
+/** `pressed` makes it a toggle: highlighted while on. */
+export function IconButton({ icon, title, onClick, sm = false, danger = false, pressed, ...rest }) {
   return html`<button
     type="button"
-    class=${`icon-btn${sm ? ' sm' : ''}${danger ? ' danger' : ''}`}
+    class=${`icon-btn${sm ? ' sm' : ''}${danger ? ' danger' : ''}${pressed ? ' on' : ''}`}
     title=${title}
     aria-label=${title}
+    aria-pressed=${pressed}
     onClick=${(e) => {
       e.stopPropagation();
       onClick?.(e);

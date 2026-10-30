@@ -206,7 +206,7 @@ export function UnsavedWindowList({ windows, store, layout = 'list' }) {
   const [saving, setSaving] = useState(null);
   if (!windows.length) return null;
   const describe = (win) => {
-    const tabs = (win.tabs ?? []).filter((tab) => !isNewTabUrl(tab.pendingUrl || tab.url) && !isWindowFixture(tab, store.state.settings.keepPinned));
+    const tabs = (win.tabs ?? []).filter((tab) => !isNewTabUrl(tab.pendingUrl || tab.url) && !isWindowFixture(tab, store.state.settings.keepPinned, store.parked));
     const first = tabs[0];
     const name = first ? (/^https?:/.test(first.url) ? hostname(first.url) : first.title || first.url) : '';
     return { tabs, name: name || t('emptyWindow') };
@@ -395,7 +395,8 @@ function TabsView({ ws, store }) {
 
   if (windowId != null) {
     const keepPinned = store.state.settings.keepPinned;
-    const all = live.filter((tab) => !isHomeUrl(tab.pendingUrl || tab.url));
+    // Kept-alive tabs of other workspaces wait here in a collapsed group; they aren't this workspace's.
+    const all = live.filter((tab) => !isHomeUrl(tab.pendingUrl || tab.url) && !store.parked[tab.id]);
     const tabs = keepPinned ? all.filter((tab) => !tab.pinned) : all;
     return html`<${PinnedStrip} tabs=${keepPinned ? all.filter((tab) => tab.pinned) : []} windowId=${windowId} />
     <div class="card">
@@ -424,8 +425,16 @@ function TabsView({ ws, store }) {
               <div class="title">${tab.title || tab.url}</div>
             </div>
             ${tab.pinned && html`<span class="meta hide-on-hover" title=${t('pinned')}><${Icon} name="pin" /></span>`}
+            ${store.keepAlive[tab.id] && html`<span class="meta keep-alive hide-on-hover" title=${t('keepAliveOn')}><${Icon} name="bolt" /></span>`}
             ${tab.discarded && html`<span class="meta hide-on-hover">${t('suspended')}</span>`}
             <div class="actions">
+              <${IconButton}
+                icon="bolt"
+                sm
+                pressed=${!!store.keepAlive[tab.id]}
+                title=${store.keepAlive[tab.id] ? t('keepAliveStop') : t('keepAlive')}
+                onClick=${() => run(call('setKeepAlive', { tabId: tab.id, keep: !store.keepAlive[tab.id] }), store.keepAlive[tab.id] ? null : t('keepAliveDone'))}
+              />
               <${IconButton} icon="bookmark" sm title=${t('saveAsResource')} onClick=${() => run(call('saveTabsAsResources', { wsId: ws.id, tabIds: [tab.id] }), t('savedToResources'))} />
               <${MoveToMenu} store=${store} exclude=${ws.id} onPick=${(target) => moveTab(tab.id, target)} />
               ${!tab.active && !tab.discarded && html`<${IconButton} icon="pause" sm title=${t('suspend')} onClick=${() => call('suspendTabs', { tabIds: [tab.id] })} />`}
@@ -455,6 +464,7 @@ function TabsView({ ws, store }) {
           <${Favicon} url=${tab.url} />
           <div class="grow"><div class="title">${tab.title || tab.url}</div></div>
           ${tab.pinned && html`<span class="meta hide-on-hover"><${Icon} name="pin" /></span>`}
+          ${tab.keepAlive && html`<span class="meta keep-alive hide-on-hover" title=${t('keepAliveOn')}><${Icon} name="bolt" /></span>`}
           <div class="actions">
             <${IconButton} icon="bookmark" sm title=${t('saveAsResource')} onClick=${() => run(call('addResources', { wsId: ws.id, items: [{ url: tab.url, title: tab.title }] }), t('savedToResources'))} />
             <${IconButton} icon="x" sm title=${t('remove')} onClick=${() => call('removeSavedTab', { wsId: ws.id, index: tab.index })} />

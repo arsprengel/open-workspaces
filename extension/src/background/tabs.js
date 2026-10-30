@@ -2,19 +2,23 @@
 // workspace's tabs into a window.
 
 import { getState, mutate, workspaceForWindow } from './store.js';
-import { isHomeUrl, isNewTabUrl, isWindowFixture, normalizeUrl, serializeGroup, serializeTab } from '../shared/model.js';
+import { isHomeUrl, isNewTabUrl, isWindowFixture, normalizeUrl, pairParked, serializeGroup, serializeTab } from '../shared/model.js';
+import { getMarks, getParked, markTabs, takeParked, unparkTab } from './keep-alive.js';
 import { HOME_PAGE } from '../shared/constants.js';
 
 const SNAPSHOT_DELAY_MS = 400;
 const timers = new Map();
 /** Windows we're rewriting right now. Tab events from them are ignored until we finish. */
 const busyWindows = new Set();
+/** Bumped each time a window gets rewritten, so a snapshot that straddled it knows it's stale. */
+const rewrites = new Map();
 
 export const isBusy = (windowId) => busyWindows.has(windowId);
 
 /** Marks `windowId` busy while `fn` runs, so the intermediate tab churn isn't saved. */
 export async function withBusyWindow(windowId, fn) {
   busyWindows.add(windowId);
+  rewrites.set(windowId, (rewrites.get(windowId) ?? 0) + 1);
   cancelSnapshot(windowId);
   try {
     return await fn();
@@ -45,6 +49,7 @@ export function scheduleSnapshot(windowId) {
 export async function snapshotWindow(windowId) {
   cancelSnapshot(windowId);
   if (busyWindows.has(windowId)) return;
+  const rewrite = rewrites.get(windowId);
   const wsId = await workspaceForWindow(windowId);
   if (!wsId) return;
 
@@ -58,8 +63,9 @@ export async function snapshotWindow(windowId) {
   if (!tabs.length) return;
 
   const { settings, workspaces } = await getState();
+  const [marks, parked] = await Promise.all([getMarks(), getParked()]);
   const groups = chrome.tabGroups ? await chrome.tabGroups.query({ windowId }).catch(() => []) : [];
-  const nextTabs = tabs.filter((tab) => !isWindowFixture(tab, settings.keepPinned)).map(serializeTab);
+  const nextTabs = tabs.filter((tab) => !isWindowFixture(tab, settings.keepPinned, parked)).map((tab) => serializeTab(tab, !!marks[tab.id]));
   const used = new Set(nextTabs.map((t) => t.groupKey).filter(Boolean));
   const nextGroups = groups.map(serializeGroup).filter((g) => used.has(g.key));
 
@@ -68,6 +74,8 @@ export async function snapshotWindow(windowId) {
   if (JSON.stringify(current.tabs) === JSON.stringify(nextTabs) && JSON.stringify(current.groups) === JSON.stringify(nextGroups)) return;
 
   await mutate((state) => {
+    // The window was rewritten (a workspace switch) while we read it: what we read is half old, half new.
+    if (busyWindows.has(windowId) || rewrites.get(windowId) !== rewrite) return;
     const ws = state.workspaces[wsId];
     if (!ws) return;
     ws.tabs = nextTabs;
@@ -77,7 +85,8 @@ export async function snapshotWindow(windowId) {
 }
 
 /**
- * Re-creates the saved tabs of `ws` at the end of `windowId`.
+ * Re-creates the saved tabs of `ws` at the end of `windowId`. Kept-alive tabs still running in a parked
+ * group (see keep-alive.js) are moved back instead, so they come back without a reload.
  * @returns {Promise<number[]>} ids of tabs that should be lazily discarded once they commit a URL.
  */
 export async function restoreTabs(windowId, ws, { lazy = true, keepPinned = false } = {}) {
@@ -90,18 +99,34 @@ export async function restoreTabs(windowId, ws, { lazy = true, keepPinned = fals
   let activeIndex = list.findIndex((t) => t.active);
   if (activeIndex < 0) activeIndex = Math.max(0, list.findIndex((t) => !t.pinned));
 
+  const { byIndex, leftover } = pairParked(list, await takeParked(ws.id));
   const created = [];
+  const keptAlive = [];
   for (const [i, src] of list.entries()) {
-    const props = { windowId, active: i === activeIndex, pinned: !!src.pinned };
+    const active = i === activeIndex;
+    const parkedId = byIndex.get(i);
+    if (parkedId != null && (await unparkTab(parkedId, windowId))) {
+      if (active) await chrome.tabs.update(parkedId, { active: true }).catch(() => {});
+      created.push({ id: parkedId, src, active, hasUrl: false });
+      continue;
+    }
+    const props = { windowId, active, pinned: !!src.pinned };
     if (!isNewTabUrl(src.url)) props.url = src.url;
     try {
       const tab = await chrome.tabs.create(props);
-      created.push({ id: tab.id, src, active: props.active, hasUrl: !!props.url });
+      // A kept-alive tab is meant to run, so it loads right away instead of waiting for a click.
+      created.push({ id: tab.id, src, active, hasUrl: !!props.url && !src.keepAlive });
+      if (src.keepAlive) keptAlive.push(tab.id);
     } catch (err) {
       // Some URLs can't be opened by extensions (e.g. file:// without access). Skip them.
       console.warn('[open-workspaces] could not restore tab', src.url, err);
     }
   }
+  // Parked tabs whose saved entry was removed meanwhile still come back rather than being lost.
+  for (const tabId of leftover) {
+    if (await unparkTab(tabId, windowId)) created.push({ id: tabId, src: { groupKey: null, pinned: false }, active: false, hasUrl: false });
+  }
+  if (keptAlive.length) await markTabs(keptAlive);
   if (!created.length) {
     const tab = await chrome.tabs.create({ windowId, active: true });
     created.push({ id: tab.id, src: list[0], active: true, hasUrl: false });

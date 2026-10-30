@@ -28,11 +28,12 @@ export function isHomeUrl(url) {
 }
 
 /**
- * Tabs that belong to the window rather than to its workspace: the home tab, plus pinned tabs
- * when the user keeps them across workspaces. They are never saved, restored or swapped out.
+ * Tabs that are not part of the window's workspace: the home tab, pinned tabs when the user keeps
+ * them across workspaces, and kept-alive tabs of other workspaces parked here (`parked`: tabId -> entry).
+ * They are never saved, restored or swapped out with the window's workspace.
  */
-export function isWindowFixture(tab, keepPinned) {
-  return isHomeUrl(tab.pendingUrl || tab.url) || (!!keepPinned && !!tab.pinned);
+export function isWindowFixture(tab, keepPinned, parked = null) {
+  return isHomeUrl(tab.pendingUrl || tab.url) || (!!keepPinned && !!tab.pinned) || !!parked?.[tab.id];
 }
 
 /** The always-on site (see PIN_SITES) a URL belongs to, or null. */
@@ -104,8 +105,11 @@ export function isExcluded(url, rules) {
 
 const MAX_FAVICON_LEN = 4096;
 
-/** Converts a chrome.tabs.Tab into the minimal shape we persist. */
-export function serializeTab(tab) {
+/**
+ * Converts a chrome.tabs.Tab into the minimal shape we persist. `keepAlive`: the user marked the tab to
+ * keep running while its workspace is closed (it waits in a minimized window instead of closing).
+ */
+export function serializeTab(tab, keepAlive = false) {
   const fav = str(tab.favIconUrl);
   return {
     url: str(tab.pendingUrl) || str(tab.url),
@@ -114,7 +118,77 @@ export function serializeTab(tab) {
     pinned: !!tab.pinned,
     active: !!tab.active,
     groupKey: typeof tab.groupId === 'number' && tab.groupId >= 0 ? String(tab.groupId) : null,
+    ...(keepAlive ? { keepAlive: true } : {}),
   };
+}
+
+/**
+ * Matches the tabs parked for a workspace (`{tabId, order}`, order = position when they left) to its
+ * saved tabs: the n-th kept-alive saved tab gets the n-th parked tab. Parked tabs without a saved tab
+ * left (the list was edited meanwhile) come back as `leftover` rather than being lost.
+ */
+export function pairParked(savedTabs, parked) {
+  const queue = [...parked].sort((a, b) => a.order - b.order).map((p) => p.tabId);
+  const byIndex = new Map();
+  savedTabs.forEach((t, i) => {
+    if (t.keepAlive && queue.length) byIndex.set(i, queue.shift());
+  });
+  return { byIndex, leftover: queue };
+}
+
+const GROUP_PALETTE = {
+  grey: [95, 99, 104], blue: [26, 115, 232], red: [217, 48, 37], yellow: [249, 171, 0], green: [24, 128, 56],
+  pink: [208, 24, 132], purple: [161, 66, 244], cyan: [0, 123, 131], orange: [250, 144, 62],
+};
+
+/** The browser tab group color closest to a workspace color (#rrggbb). */
+export function nearestGroupColor(hex) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(str(hex));
+  if (!m) return 'grey';
+  const rgb = m.slice(1).map((h) => parseInt(h, 16));
+  let best = 'grey';
+  let bestDist = Infinity;
+  for (const [name, c] of Object.entries(GROUP_PALETTE)) {
+    const d = c.reduce((sum, v, i) => sum + (v - rgb[i]) ** 2, 0);
+    if (d < bestDist) [best, bestDist] = [name, d];
+  }
+  return best;
+}
+
+/**
+ * Finds parked groups again after their tab ids changed (browser restart, extension update): a group
+ * whose title is a workspace's recorded parked title and whose tabs all are recorded URLs of it.
+ * @param {{title:string, tabs:{id:number, url:string}[]}[]} groups
+ * @param {Record<string, {title:string, urls:string[]}>} records wsId -> recorded parked group
+ * @returns {{wsId:string, tabIds:number[]}[]}
+ */
+export function recognizeParked(groups, records) {
+  const found = [];
+  const taken = new Set();
+  for (const group of groups) {
+    const entry = Object.entries(records).find(([wsId, r]) => !taken.has(wsId) && r.title === group.title);
+    if (!entry || !group.tabs.length) continue;
+    const urls = new Set(entry[1].urls.map(normalizeUrl));
+    if (!group.tabs.every((t) => urls.has(normalizeUrl(t.url)))) continue;
+    taken.add(entry[0]);
+    found.push({ wsId: entry[0], tabIds: group.tabs.map((t) => t.id) });
+  }
+  return found;
+}
+
+/** Ids of the live tabs that are the kept-alive saved tabs, matched by URL (after a restart tab ids change). */
+export function keepAliveMatches(liveTabs, savedTabs) {
+  const used = new Set();
+  const ids = [];
+  for (const saved of savedTabs) {
+    if (!saved.keepAlive) continue;
+    const url = normalizeUrl(saved.url);
+    const tab = liveTabs.find((t) => !used.has(t.id) && normalizeUrl(t.pendingUrl || t.url) === url);
+    if (!tab) continue;
+    used.add(tab.id);
+    ids.push(tab.id);
+  }
+  return ids;
 }
 
 export function serializeGroup(group) {
@@ -184,6 +258,7 @@ function normalizeTabs(tabs) {
       pinned: !!t.pinned,
       active: !!t.active,
       groupKey: t.groupKey == null ? null : String(t.groupKey),
+      ...(t.keepAlive === true ? { keepAlive: true } : {}),
     }));
 }
 

@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  applyImport, buildExport, cleanImage, emptyState, isExcluded, isHomeUrl, isNewTabUrl, isWindowFixture, makeWorkspace, matchWindows,
-  normalizeState, overlapScore, parseExclusions, pinSuggestionFor, realTabCount, search, serializeTab, suggestedSite,
+  applyImport, buildExport, cleanImage, emptyState, isExcluded, isHomeUrl, isNewTabUrl, isWindowFixture, keepAliveMatches,
+  makeWorkspace, matchWindows, nearestGroupColor, normalizeState, overlapScore, pairParked, parseExclusions, pinSuggestionFor, realTabCount,
+  recognizeParked, search,
+  serializeTab, suggestedSite,
 } from '../extension/src/shared/model.js';
 
 test('isNewTabUrl recognises blank and new-tab pages', () => {
@@ -202,4 +204,61 @@ test('pin suggestions default on with nothing muted', () => {
   assert.equal(s.pinSuggestions, true);
   assert.deepEqual(s.pinMuted, {});
   assert.deepEqual(normalizeState({ settings: { pinMuted: { slack: true } } }).settings.pinMuted, { slack: true });
+});
+
+test('serializeTab records the keep-alive mark only when set, and saved tabs keep it', () => {
+  const tab = { url: 'https://a.com', title: 'A', pinned: false, active: false, groupId: -1 };
+  assert.equal('keepAlive' in serializeTab(tab), false);
+  assert.equal(serializeTab(tab, false).keepAlive, undefined);
+  assert.equal(serializeTab(tab, true).keepAlive, true);
+  const state = normalizeState({ workspaces: { x: { id: 'x', tabs: [{ url: 'https://a.com', keepAlive: true }, { url: 'https://b.com', keepAlive: 'yes' }, { url: 'https://c.com' }] } } });
+  assert.deepEqual(state.workspaces.x.tabs.map((t) => t.keepAlive), [true, undefined, undefined]);
+});
+
+test('parked tabs of other workspaces are window fixtures, not part of the window\'s workspace', () => {
+  const tab = { id: 5, url: 'https://a.com', pinned: false };
+  assert.equal(isWindowFixture(tab, true), false);
+  assert.equal(isWindowFixture(tab, true, { 5: { wsId: 'x', order: 0 } }), true);
+  assert.equal(isWindowFixture(tab, true, { 6: { wsId: 'x', order: 0 } }), false);
+});
+
+test('nearestGroupColor maps workspace colors onto the browser group palette', () => {
+  assert.equal(nearestGroupColor('#ef4444'), 'red');
+  assert.equal(nearestGroupColor('#22c55e'), 'green');
+  assert.equal(nearestGroupColor('#3b82f6'), 'blue');
+  assert.equal(nearestGroupColor('#8b5cf6'), 'purple');
+  assert.equal(nearestGroupColor('#f97316'), 'orange');
+  assert.equal(nearestGroupColor('nope'), 'grey');
+});
+
+test('recognizeParked finds parked groups by recorded title and URLs', () => {
+  const records = { a: { title: '🚀 Alpha', urls: ['https://chat.example/', 'https://music.example/x'] }, b: { title: 'Beta', urls: ['https://b.example/'] } };
+  const groups = [
+    { title: 'Work stuff', tabs: [{ id: 1, url: 'https://chat.example/' }] },
+    { title: '🚀 Alpha', tabs: [{ id: 2, url: 'https://chat.example/#top' }, { id: 3, url: 'https://music.example/x' }] },
+    { title: 'Beta', tabs: [{ id: 4, url: 'https://other.example/' }] },
+    { title: '🚀 Alpha', tabs: [{ id: 5, url: 'https://chat.example/' }] },
+  ];
+  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'a', tabIds: [2, 3] }]);
+  assert.deepEqual(recognizeParked([{ title: 'Beta', tabs: [] }], records), []);
+});
+
+test('pairParked gives the n-th kept-alive saved tab the n-th parked tab', () => {
+  const saved = [{ url: 'a' }, { url: 'b', keepAlive: true }, { url: 'c' }, { url: 'd', keepAlive: true }];
+  const parked = [{ tabId: 9, order: 3 }, { tabId: 7, order: 1 }];
+  const { byIndex, leftover } = pairParked(saved, parked);
+  assert.deepEqual([...byIndex], [[1, 7], [3, 9]]);
+  assert.deepEqual(leftover, []);
+
+  const fewer = pairParked([{ url: 'b', keepAlive: true }], parked);
+  assert.deepEqual([...fewer.byIndex], [[0, 7]]);
+  assert.deepEqual(fewer.leftover, [9], 'parked tabs with no saved entry left are still handed back');
+  assert.deepEqual([...pairParked(saved, []).byIndex], []);
+});
+
+test('keepAliveMatches finds the live tabs behind kept-alive saved tabs', () => {
+  const live = [{ id: 1, url: 'https://a.com/' }, { id: 2, url: 'https://b.com/#x' }, { id: 3, url: 'https://b.com/' }, { id: 4, pendingUrl: 'https://c.com/', url: '' }];
+  const saved = [{ url: 'https://a.com/' }, { url: 'https://b.com/', keepAlive: true }, { url: 'https://b.com/', keepAlive: true }, { url: 'https://c.com/', keepAlive: true }, { url: 'https://gone.com/', keepAlive: true }];
+  assert.deepEqual(keepAliveMatches(live, saved), [2, 3, 4]);
+  assert.deepEqual(keepAliveMatches(live, [{ url: 'https://a.com/' }]), []);
 });
