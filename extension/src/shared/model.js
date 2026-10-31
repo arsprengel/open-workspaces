@@ -216,7 +216,7 @@ export function nearestGroupColor(hex) {
 export function recognizeParked(groups, records) {
   const found = [];
   const taken = new Set();
-  // Parked groups carry no title now, so several records can share one: the pages tell them apart.
+  // Several records can share a title (same workspace name, or untitled): the pages tell them apart.
   const covers = (r, group) => {
     const urls = new Set(r.urls.map(normalizeUrl));
     return group.tabs.every((t) => urls.has(normalizeUrl(t.url)));

@@ -1,12 +1,13 @@
 // Parked tabs: switching away from a workspace gathers its tabs in a collapsed tab group at the end of the
-// window (untitled, so it shows as a small dot in the workspace's color) instead of closing them; opening the workspace takes them
+// window (named and colored like the workspace) instead of closing them; opening the workspace takes them
 // back out, in place and without a reload. Tabs the user marked to keep running wait for as long as it
-// takes; the others only for a while (settings.warmMinutes), in case the switch was a quick look elsewhere.
+// takes; the others only for a while (settings.waitMinutes), in case the switch was a quick look elsewhere.
 // Marks and parked tabs are tab ids, so they live in storage.session. Each parked group's title and URLs
 // are also kept in storage.local, to recognise the group once ids change (browser restart, extension update).
 
 import { dueParked, nearestGroupColor, recognizeParked, reparkEntries } from '../shared/model.js';
 import { KEEP_ALIVE_KEY, PARKED_GROUPS_KEY, PARKED_KEY } from '../shared/constants.js';
+import { getState } from './store.js';
 
 export const PARKED_ALARM = 'ow-parked';
 
@@ -41,6 +42,7 @@ export function markTabs(tabIds, keep = true) {
 }
 
 const pageOf = (tab) => tab.pendingUrl || tab.url;
+const groupTitle = (ws) => `${ws.icon ? `${ws.icon} ` : ''}${ws.name || chrome.i18n.getMessage('untitled') || 'Workspace'}`;
 
 /**
  * Gathers tabs leaving `ws` into a collapsed group at the end of their window. Those in `marks` wait until
@@ -50,9 +52,10 @@ const pageOf = (tab) => tab.pendingUrl || tab.url;
 export async function parkTabs(ws, tabs, { marks = {}, orders = null } = {}) {
   if (!ws || !tabs.length || !chrome.tabGroups) return [];
   const ids = tabs.map((t) => t.id);
+  const title = groupTitle(ws);
   try {
     const groupId = await chrome.tabs.group({ tabIds: ids, createProperties: { windowId: tabs[0].windowId } });
-    await chrome.tabGroups.update(groupId, { title: '', color: nearestGroupColor(ws.color), collapsed: true });
+    await chrome.tabGroups.update(groupId, { title, color: nearestGroupColor(ws.color), collapsed: true });
     await chrome.tabGroups.move(groupId, { index: -1 });
   } catch (err) {
     console.warn('[open-workspaces] could not park tabs', err);
@@ -66,7 +69,7 @@ export async function parkTabs(ws, tabs, { marks = {}, orders = null } = {}) {
     tabs.forEach((t, i) => (parked[t.id] = { wsId: ws.id, order: orders?.[i] ?? i, url: pageOf(t), ...(!marks[t.id] && { leftAt }) })),
   );
   const kept = tabs.filter((t) => marks[t.id]).map(pageOf);
-  await update('local', PARKED_GROUPS_KEY, (groups) => (groups[ws.id] = { title: '', urls: tabs.map(pageOf), kept }));
+  await update('local', PARKED_GROUPS_KEY, (groups) => (groups[ws.id] = { title, urls: tabs.map(pageOf), kept }));
   return ids;
 }
 
@@ -185,14 +188,16 @@ export async function recognizeParkedGroups(windowId = null) {
     groups.push({ title: group.title ?? '', tabs });
   }
   const now = Date.now();
+  const { workspaces } = await getState();
   for (const { wsId, tabIds } of recognizeParked(groups, pending)) {
     const { entries, kept } = reparkEntries(wsId, tabIds.map((id) => ({ id, url: pages.get(id) })), pending[wsId], now);
     await update('session', PARKED_KEY, (p) => Object.assign(p, entries));
     if (kept.length) await markTabs(kept);
-    // Groups parked before they went untitled lose their name too.
-    if (pending[wsId].title) {
-      await chrome.tabGroups.update(groupOf.get(tabIds[0]), { title: '' }).catch(() => {});
-      await update('local', PARKED_GROUPS_KEY, (records) => records[wsId] && (records[wsId].title = ''));
+    // The group may carry an outdated title: the workspace was renamed, or an earlier version left it untitled.
+    const title = workspaces[wsId] ? groupTitle(workspaces[wsId]) : pending[wsId].title;
+    if (title !== pending[wsId].title) {
+      await chrome.tabGroups.update(groupOf.get(tabIds[0]), { title }).catch(() => {});
+      await update('local', PARKED_GROUPS_KEY, (records) => records[wsId] && (records[wsId].title = title));
     }
   }
 }

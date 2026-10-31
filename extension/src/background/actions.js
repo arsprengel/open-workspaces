@@ -155,7 +155,7 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
     // Leaving tabs wait in a collapsed group instead of closing (pinned tabs can't be grouped): those marked
     // to keep running until the workspace is back, the others for a while, in case this is a quick look.
     const marks = await getMarks();
-    const waits = (t) => !t.pinned && (marks[t.id] || (settings.warmMinutes > 0 && !isNewTabUrl(t.pendingUrl || t.url)));
+    const waits = (t) => !t.pinned && (marks[t.id] || (settings.waitMinutes > 0 && !isNewTabUrl(t.pendingUrl || t.url)));
     const orders = leaving.flatMap((t, i) => (waits(t) ? [i] : []));
     const waiting = new Set(await parkTabs(oldWsId && workspaces[oldWsId], orders.map((i) => leaving[i]), { marks, orders }));
     const closing = leaving.filter((t) => !waiting.has(t.id)).map((t) => t.id);
@@ -167,7 +167,7 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
   await touchOpened(wsId);
   await snapshotWindow(windowId);
   discardWhenReady(lazyIds);
-  await expireParked(settings.warmMinutes);
+  await expireParked(settings.waitMinutes);
   return { windowId };
 }
 
