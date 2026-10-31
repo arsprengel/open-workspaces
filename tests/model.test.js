@@ -243,6 +243,16 @@ test('recognizeParked finds parked groups by recorded title and URLs', () => {
   assert.deepEqual(recognizeParked([{ title: 'Beta', tabs: [] }], records), []);
 });
 
+test('recognizeParked tells parked groups with the same title apart by their pages', () => {
+  const records = { a: { title: '', urls: ['https://a.example/'] }, b: { title: '', urls: ['https://b.example/', 'https://b.example/2'] } };
+  const groups = [
+    { title: '', tabs: [{ id: 1, url: 'https://b.example/2' }, { id: 2, url: 'https://b.example/' }] },
+    { title: '', tabs: [{ id: 3, url: 'https://a.example/' }] },
+    { title: '', tabs: [{ id: 4, url: 'https://mine.example/' }] },
+  ];
+  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'b', tabIds: [1, 2] }, { wsId: 'a', tabIds: [3] }]);
+});
+
 test('pairParked gives the n-th kept-alive saved tab the n-th parked tab', () => {
   const saved = [{ url: 'a' }, { url: 'b', keepAlive: true }, { url: 'c' }, { url: 'd', keepAlive: true }];
   const parked = [{ tabId: 9, order: 3 }, { tabId: 7, order: 1 }];
@@ -305,7 +315,8 @@ test('keepAliveMatches finds the live tabs behind kept-alive saved tabs', () => 
 
 test('switching workspaces shows the Open Workspaces page by default', () => {
   assert.equal(normalizeState({}).settings.homeOnSwitch, true);
-  assert.equal(normalizeState({}).settings.warmMinutes, 15);
-  assert.equal(normalizeState({ settings: { warmMinutes: 0 } }).settings.warmMinutes, 0);
+  assert.equal(normalizeState({}).settings.waitMinutes, 0);
+  assert.equal(normalizeState({ settings: { waitMinutes: 15 } }).settings.waitMinutes, 15);
+  assert.equal(normalizeState({ settings: { warmMinutes: 15 } }).settings.waitMinutes, 0, 'the short-lived default of 15 minutes is dropped');
   assert.equal(normalizeState({ settings: { homeOnSwitch: false } }).settings.homeOnSwitch, false);
 });

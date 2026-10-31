@@ -106,9 +106,6 @@ async function scenario() {
   };
   const U = ['https://example.com/?a', 'https://example.com/?b', 'https://example.com/?c'];
 
-  // Tabs left behind by a switch close right away here; warmCheck covers them waiting for a while.
-  await call('updateSettings', { patch: { warmMinutes: 0 } });
-
   // 1. Save a window as workspace A
   const win = await chrome.windows.create({ url: U, focused: false });
   await sleep(500);
@@ -643,7 +640,7 @@ async function warmCheck(port, dash) {
     ${code}
   })()`);
   const s = await ev(`
-    await call('updateSettings', { patch: { warmMinutes: 15 } });
+    await call('updateSettings', { patch: { waitMinutes: 15 } });
     const win = await chrome.windows.create({ url: ${JSON.stringify(W)}, focused: false });
     await sleep(2500);
     const { id: warm } = await call('createWorkspace', { name: 'Warm', icon: '🔥', color: '#f97316', fromWindowId: win.id });
@@ -664,7 +661,7 @@ async function warmCheck(port, dash) {
     const { state } = await chrome.storage.local.get('state');
     return {
       waiting: tabs.every((t) => t && t.windowId === ${windowId} && t.groupId >= 0 && t.groupId === tabs[0].groupId),
-      collapsed: !!group?.collapsed && group.title === '🔥 Warm',
+      collapsed: !!group?.collapsed && group.title === '🔥 Warm' && group.color === 'orange',
       notInOther: !state.workspaces[${JSON.stringify(other)}].tabs.some((t) => t.url.includes('warm')),
       alarm: !!(await chrome.alarms.get('ow-parked')),
     };`);
@@ -687,7 +684,7 @@ async function warmCheck(port, dash) {
     await call('setKeepAlive', { tabId: ${ids[0]}, keep: true });
     await call('openWorkspace', { id: ${JSON.stringify(other)}, windowId: ${windowId} });
     await sleep(600);
-    await call('updateSettings', { patch: { warmMinutes: 0.05 } });
+    await call('updateSettings', { patch: { waitMinutes: 0.05 } });
     await sleep(6000);
     const [marked, unmarked] = await Promise.all(${JSON.stringify(ids)}.map(get));
     await call('openWorkspace', { id: ${JSON.stringify(warm)}, windowId: ${windowId} });
@@ -702,12 +699,12 @@ async function warmCheck(port, dash) {
   // Turned off: the tabs waiting close at once.
   const off = await ev(`
     await call('setKeepAlive', { tabId: ${ids[0]}, keep: false });
-    await call('updateSettings', { patch: { warmMinutes: 15 } });
+    await call('updateSettings', { patch: { waitMinutes: 15 } });
     const before = (await own(${windowId})).map((t) => t.id);
     await call('openWorkspace', { id: ${JSON.stringify(other)}, windowId: ${windowId} });
     await sleep(600);
     const waited = (await Promise.all(before.map(get))).every((t) => t?.groupId >= 0);
-    await call('updateSettings', { patch: { warmMinutes: 0 } });
+    await call('updateSettings', { patch: { waitMinutes: 0 } });
     await sleep(800);
     const gone = (await Promise.all(before.map(get))).every((t) => !t);
     await chrome.windows.remove(${windowId});
@@ -721,6 +718,115 @@ async function warmCheck(port, dash) {
     { name: 'waiting tabs close once unused for the wait, marked ones stay', ok: expired.markedStays && expired.unmarkedClosed && expired.backInOrder, detail },
     { name: 'turning waiting off closes the waiting tabs', ok: off.waited && off.gone, detail },
   ];
+}
+
+/** A parked group recognised after an extension update takes its workspace's current name (it may have none). */
+function parkedGroupNameCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const win = await chrome.windows.create({ url: 'https://example.com/?legacy', focused: false });
+    await sleep(2000);
+    const { id: legacy } = await call('createWorkspace', { name: 'Legacy', fromWindowId: win.id });
+    const { id: other } = await call('createWorkspace', { name: 'Legacy other' });
+    const tab = (await chrome.tabs.query({ windowId: win.id })).find((t) => t.url === 'https://example.com/?legacy');
+    await call('setKeepAlive', { tabId: tab.id, keep: true });
+    await call('openWorkspace', { id: other, windowId: win.id });
+    await sleep(800);
+    const groupId = (await chrome.tabs.get(tab.id)).groupId;
+    const named = (await chrome.tabGroups.get(groupId)).title === 'Legacy';
+    // As an earlier version left it, and as an update finds it: untitled group, no record of the tab id.
+    await chrome.tabGroups.update(groupId, { title: '' });
+    const { parkedGroups } = await chrome.storage.local.get('parkedGroups');
+    parkedGroups[legacy].title = '';
+    await chrome.storage.local.set({ parkedGroups });
+    const { parked } = await chrome.storage.session.get('parked');
+    delete parked[tab.id];
+    await chrome.storage.session.set({ parked });
+    const { recognizeParkedGroups } = await import('/src/background/keep-alive.js');
+    await recognizeParkedGroups(win.id);
+    const after = (await chrome.tabGroups.get(groupId)).title;
+    const tracked = !!(await chrome.storage.session.get('parked')).parked[tab.id];
+    const record = (await chrome.storage.local.get('parkedGroups')).parkedGroups[legacy]?.title;
+    await chrome.windows.remove(win.id);
+    for (const id of [legacy, other]) await call('deleteWorkspace', { id });
+    const r = { named, after, tracked, record };
+    return [{ name: 'a parked group recognised after an update gets its workspace name back', ok: named && after === 'Legacy' && tracked && record === 'Legacy', detail: JSON.stringify(r) }];
+  })()`);
+}
+
+/**
+ * Clicking workspaces faster than a switch completes: each switch must finish before the next starts, or
+ * the tabs of the workspaces in between stay in the window and get saved into the last one.
+ */
+function rapidSwitchCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const names = ['r1', 'r2', 'r3', 'r4'];
+    const ids = {};
+    let windowId = null;
+    for (const name of names) {
+      const w = await chrome.windows.create({ url: [1, 2, 3, 4, 5, 6].map((n) => 'https://example.com/?' + name + '-' + n), focused: false });
+      await sleep(1200);
+      ids[name] = (await call('createWorkspace', { name: 'Rapid ' + name, fromWindowId: w.id })).id;
+      await sleep(400);
+      if (windowId == null) windowId = w.id;
+      else await chrome.windows.remove(w.id);
+    }
+    const own = (u, name) => u.split('?')[1]?.startsWith(name + '-');
+    const clean = async () => {
+      const { state } = await chrome.storage.local.get('state');
+      return names.every((n) => {
+        const urls = state.workspaces[ids[n]].tabs.map((t) => t.url);
+        return urls.length === 6 && urls.every((u) => own(u, n));
+      });
+    };
+    const rounds = [];
+    for (const gap of [0, 60, 250]) {
+      const clicks = ['r2', 'r3', 'r4', 'r1', 'r2', 'r3'];
+      const runs = [];
+      for (const name of clicks) {
+        runs.push(call('openWorkspace', { id: ids[name], windowId }));
+        await sleep(gap);
+      }
+      await Promise.all(runs);
+      await sleep(2500);
+      const live = (await chrome.tabs.query({ windowId })).map((t) => t.pendingUrl || t.url).filter((u) => u.startsWith('https://'));
+      const { windowMap } = await chrome.storage.session.get('windowMap');
+      rounds.push({ gap, bound: windowMap[windowId] === ids.r3, live: live.length === 6 && live.every((u) => own(u, 'r3')), saved: await clean(), count: live.length });
+      await call('openWorkspace', { id: ids.r1, windowId });
+      await sleep(1500);
+    }
+    await chrome.windows.remove(windowId);
+    for (const n of names) await call('deleteWorkspace', { id: ids[n] });
+    return [{ name: 'clicking workspaces faster than a switch completes ends on the last one, nothing mixed', ok: rounds.every((r) => r.bound && r.live && r.saved), detail: JSON.stringify(rounds) }];
+  })()`);
+}
+
+/** Closing a list of tabs where one already closed by itself (a login page, say) still closes the others. */
+function closeTabsCheck(dash) {
+  return dash.eval(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const w = await chrome.windows.create({ url: [1, 2, 3, 4].map((n) => 'https://example.com/?close' + n), focused: false });
+    await sleep(1000);
+    const tabs = (await chrome.tabs.query({ windowId: w.id })).filter((t) => (t.pendingUrl || t.url).includes('?close'));
+    await chrome.tabs.remove(tabs[1].id);
+    const { closeTabs } = await import('/src/background/tabs.js');
+    await closeTabs(tabs.map((t) => t.id));
+    await sleep(300);
+    const left = (await chrome.tabs.query({ windowId: w.id })).filter((t) => (t.pendingUrl || t.url).includes('?close')).length;
+    await chrome.windows.remove(w.id).catch(() => {});
+    return [{ name: 'closing tabs goes on past one already gone', ok: left === 0, detail: JSON.stringify({ left }) }];
+  })()`);
 }
 
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
@@ -799,7 +905,7 @@ async function captureScreens(port, extId, dir, dash, full) {
 
   const demoWin = await dash.eval(`(async () => {
     const call = (action, payload) => chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
-    await call('updateSettings', { patch: { lazyLoadTabs: false, warmMinutes: 15, suspend: { mode: 'manual' } } });
+    await call('updateSettings', { patch: { lazyLoadTabs: false, suspend: { mode: 'manual' } } });
     const win = await chrome.windows.create({ focused: true, width: 1440, height: 900 });
     await call('openWorkspace', { id: 'demo-1', windowId: win.id });
     return win.id;
@@ -1005,6 +1111,9 @@ async function main() {
     checks.push(...(await popupUploadCheck(port, pages.popup, pages.dashboard)));
     checks.push(...(await keepAliveCheck(port, pages.dashboard)));
     checks.push(...(await warmCheck(port, pages.dashboard)));
+    checks.push(...(await parkedGroupNameCheck(pages.dashboard)));
+    checks.push(...(await rapidSwitchCheck(pages.dashboard)));
+    checks.push(...(await closeTabsCheck(pages.dashboard)));
     checks.push(...(await homeOnSwitchCheck(pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');

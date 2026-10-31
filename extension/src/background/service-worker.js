@@ -80,7 +80,7 @@ chrome.windows.onFocusChanged.addListener(() => syncKeepAliveMenu());
 
 /** Closes the tabs of closed workspaces whose wait is over, and sets the alarm for the next. */
 async function expireWaitingTabs() {
-  await expireParked((await getState()).settings.warmMinutes).catch((err) => console.warn('[open-workspaces] waiting tabs', err));
+  await expireParked((await getState()).settings.waitMinutes).catch((err) => console.warn('[open-workspaces] waiting tabs', err));
 }
 
 chrome.windows.onRemoved.addListener((windowId) => {
@@ -145,7 +145,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (JSON.stringify(before?.settings) !== JSON.stringify(after?.settings)) {
     applyActionBehavior();
     syncSuspendAlarm();
-    if (before?.settings?.warmMinutes !== after?.settings?.warmMinutes) expireWaitingTabs();
+    if (before?.settings?.waitMinutes !== after?.settings?.waitMinutes) expireWaitingTabs();
   }
   if (before && after && before.settings?.homeTab !== after.settings?.homeTab) syncHomeTabs(after.settings.homeTab !== false);
   const menuKey = (s) => JSON.stringify((s?.order ?? []).map((id) => [id, s.workspaces[id]?.name, s.workspaces[id]?.icon, s.workspaces[id]?.archived]));

@@ -18,7 +18,7 @@ export const KEEP_ALIVE_KEY = 'keepAlive';
 /**
  * chrome.storage.session key: tabs of closed workspaces waiting (still running) in a collapsed tab group
  * at the end of some window (tabId -> {wsId, order, url, leftAt?}). Tabs marked to keep running wait
- * until their workspace opens again; the others (with `leftAt`) close after `warmMinutes` unused.
+ * until their workspace opens again; the others (with `leftAt`) close after `waitMinutes` unused.
  */
 export const PARKED_KEY = 'parked';
 /**
@@ -84,9 +84,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   homeOnSwitch: true,
   /**
    * Minutes the tabs of a workspace you switched away from keep running (parked in a collapsed group) in
-   * case you come back; each closes once unused that long. 0 closes them on the switch.
+   * case you come back; each closes once unused that long. 0 (default) closes them on the switch.
    */
-  warmMinutes: 15,
+  waitMinutes: 0,
   /** Tabs pinned in the browser belong to the window: they stay open when switching workspaces. */
   keepPinned: true,
   /** Offer to pin always-on sites (PIN_SITES) when one opens in an unpinned tab. */
