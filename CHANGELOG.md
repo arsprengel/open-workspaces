@@ -21,6 +21,8 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 
 - A save that was already running when you switched workspaces could finish late and briefly store a half-switched tab list.
+- Workspaces could swallow each other's tabs, more of them on every switch: clicking another workspace while a switch was still running left the tabs of the ones in between in the window, saved into the last one. Switches now run one at a time, and of several quick clicks only the last is carried out.
+- A tab of the workspace being left that had already closed by itself (a login page, for one) kept the tabs after it from closing, so they ended up in the next workspace.
 
 ## [0.1.0] - 2026-10-29
 

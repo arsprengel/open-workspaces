@@ -2,7 +2,7 @@
 // JSON-serializable data. Wired to chrome.runtime.onMessage in service-worker.js.
 
 import { clearWindowMap, getState, getWindowMap, mutate, replaceState, setWindowWorkspace, unbindWorkspace, windowForWorkspace, workspaceForWindow } from './store.js';
-import { discardWhenReady, ensureHomeTab, homeUrl, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
+import { closeTabs, discardWhenReady, ensureHomeTab, homeUrl, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
 import {
   closeParked, dropParkedRecord, expireParked, getMarks, getParked, markTabs, parkTabs, parkedOf, tidyParkedGroups, unregisterParked,
 } from './keep-alive.js';
@@ -105,13 +105,45 @@ async function touchOpened(id) {
   });
 }
 
+// Opening or closing a workspace rewrites a window's tabs. Two at once leave each other's tabs behind, and
+// those then get saved into the wrong workspace, so they run one at a time. One stuck for longer than
+// SWITCH_TIMEOUT_MS stops holding up the next.
+const SWITCH_TIMEOUT_MS = 30_000;
+let switching = Promise.resolve();
+
+function oneAtATime(fn) {
+  const run = switching.then(fn);
+  const settled = run.catch(() => {});
+  switching = switching.then(() => Promise.race([settled, new Promise((r) => setTimeout(r, SWITCH_TIMEOUT_MS))]));
+  return run;
+}
+
+/** The newest request still waiting to open a workspace in each window: older ones are dropped. */
+const latestOpen = new Map();
+
 /**
- * Opens (switches to) a workspace.
+ * Opens (switches to) a workspace, after any switch already running. Clicking several workspaces while
+ * one opens doesn't walk through all of them: only the last click waiting for a window is carried out.
+ */
+export function openWorkspace(args) {
+  const key = args.newWindow ? null : (args.windowId ?? 'focused');
+  const ticket = {};
+  if (key != null) latestOpen.set(key, ticket);
+  return oneAtATime(() => {
+    if (key != null) {
+      if (latestOpen.get(key) !== ticket) return null;
+      latestOpen.delete(key);
+    }
+    return openNow(args);
+  });
+}
+
+/**
  * - Already open in some window: focus that window.
  * - openMode "current" and the target window is a workspace or only has blank tabs: swap its tabs.
  * - Otherwise (new window requested, or the window has unsaved tabs we must not lose): new window.
  */
-export async function openWorkspace({ id, windowId = null, newWindow = false }) {
+async function openNow({ id, windowId = null, newWindow = false }) {
   const state = await getState();
   const ws = requireWs(state, id);
 
@@ -159,7 +191,7 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
     const orders = leaving.flatMap((t, i) => (waits(t) ? [i] : []));
     const waiting = new Set(await parkTabs(oldWsId && workspaces[oldWsId], orders.map((i) => leaving[i]), { marks, orders }));
     const closing = leaving.filter((t) => !waiting.has(t.id)).map((t) => t.id);
-    if (closing.length) await chrome.tabs.remove(closing).catch(() => {});
+    await closeTabs(closing);
     await tidyParkedGroups(windowId);
     if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true, activate: home != null });
     return ids;
@@ -182,7 +214,7 @@ async function openInNewWindow(wsId) {
     await setWindowWorkspace(win.id, wsId);
     const ids = await restoreTabs(win.id, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned, background: onHome });
     const blank = onHome ? initial.filter((t) => !isWindowFixture(t, false)) : initial;
-    await chrome.tabs.remove(blank.map((t) => t.id)).catch(() => {});
+    await closeTabs(blank.map((t) => t.id));
     if (settings.homeTab) await ensureHomeTab(win.id, { activate: onHome });
     return ids;
   });
@@ -193,7 +225,11 @@ async function openInNewWindow(wsId) {
 }
 
 /** Saves and closes a workspace's tabs. The last browser window is kept alive with a new tab. */
-export async function closeWorkspace({ id }) {
+export function closeWorkspace(args) {
+  return oneAtATime(() => closeNow(args));
+}
+
+async function closeNow({ id }) {
   const windowId = await windowForWorkspace(id);
   if (windowId == null) return;
   await snapshotWindow(windowId);
@@ -207,11 +243,15 @@ export async function closeWorkspace({ id }) {
   const parked = await getParked();
   const tabs = (await chrome.tabs.query({ windowId })).filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
   await chrome.tabs.create({ windowId, active: true });
-  await chrome.tabs.remove(tabs.map((t) => t.id)).catch(() => {});
+  await closeTabs(tabs.map((t) => t.id));
 }
 
-/** Cycles through open-able (non archived) workspaces in sidebar order. */
-export async function cycleWorkspace({ direction = 1, windowId = null } = {}) {
+/** Cycles through open-able (non archived) workspaces in sidebar order, counting from where the last switch landed. */
+export function cycleWorkspace(args = {}) {
+  return oneAtATime(() => cycleNow(args));
+}
+
+async function cycleNow({ direction = 1, windowId = null }) {
   const state = await getState();
   const ids = state.order.filter((id) => !state.workspaces[id].archived);
   if (!ids.length) return;
@@ -219,7 +259,7 @@ export async function cycleWorkspace({ direction = 1, windowId = null } = {}) {
   const current = win != null ? await workspaceForWindow(win) : null;
   const index = current ? ids.indexOf(current) : -1;
   const next = ids[(index + direction + ids.length) % ids.length];
-  if (next !== current) await openWorkspace({ id: next, windowId: win });
+  if (next !== current) await openNow({ id: next, windowId: win });
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +290,7 @@ export async function moveTabs({ tabIds, targetId }) {
     ws.updatedAt = Date.now();
   });
   await keepWindowsAlive(tabs);
-  await chrome.tabs.remove(tabs.map((t) => t.id));
+  await closeTabs(tabs.map((t) => t.id));
 }
 
 /** If removing `tabs` would empty a window, open a blank tab there first so the window survives. */

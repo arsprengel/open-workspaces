@@ -759,6 +759,76 @@ function parkedGroupNameCheck(dash) {
   })()`);
 }
 
+/**
+ * Clicking workspaces faster than a switch completes: each switch must finish before the next starts, or
+ * the tabs of the workspaces in between stay in the window and get saved into the last one.
+ */
+function rapidSwitchCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const names = ['r1', 'r2', 'r3', 'r4'];
+    const ids = {};
+    let windowId = null;
+    for (const name of names) {
+      const w = await chrome.windows.create({ url: [1, 2, 3, 4, 5, 6].map((n) => 'https://example.com/?' + name + '-' + n), focused: false });
+      await sleep(1200);
+      ids[name] = (await call('createWorkspace', { name: 'Rapid ' + name, fromWindowId: w.id })).id;
+      await sleep(400);
+      if (windowId == null) windowId = w.id;
+      else await chrome.windows.remove(w.id);
+    }
+    const own = (u, name) => u.split('?')[1]?.startsWith(name + '-');
+    const clean = async () => {
+      const { state } = await chrome.storage.local.get('state');
+      return names.every((n) => {
+        const urls = state.workspaces[ids[n]].tabs.map((t) => t.url);
+        return urls.length === 6 && urls.every((u) => own(u, n));
+      });
+    };
+    const rounds = [];
+    for (const gap of [0, 60, 250]) {
+      const clicks = ['r2', 'r3', 'r4', 'r1', 'r2', 'r3'];
+      const runs = [];
+      for (const name of clicks) {
+        runs.push(call('openWorkspace', { id: ids[name], windowId }));
+        await sleep(gap);
+      }
+      await Promise.all(runs);
+      await sleep(2500);
+      const live = (await chrome.tabs.query({ windowId })).map((t) => t.pendingUrl || t.url).filter((u) => u.startsWith('https://'));
+      const { windowMap } = await chrome.storage.session.get('windowMap');
+      rounds.push({ gap, bound: windowMap[windowId] === ids.r3, live: live.length === 6 && live.every((u) => own(u, 'r3')), saved: await clean(), count: live.length });
+      await call('openWorkspace', { id: ids.r1, windowId });
+      await sleep(1500);
+    }
+    await chrome.windows.remove(windowId);
+    for (const n of names) await call('deleteWorkspace', { id: ids[n] });
+    return [{ name: 'clicking workspaces faster than a switch completes ends on the last one, nothing mixed', ok: rounds.every((r) => r.bound && r.live && r.saved), detail: JSON.stringify(rounds) }];
+  })()`);
+}
+
+/** Closing a list of tabs where one already closed by itself (a login page, say) still closes the others. */
+function closeTabsCheck(dash) {
+  return dash.eval(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const w = await chrome.windows.create({ url: [1, 2, 3, 4].map((n) => 'https://example.com/?close' + n), focused: false });
+    await sleep(1000);
+    const tabs = (await chrome.tabs.query({ windowId: w.id })).filter((t) => (t.pendingUrl || t.url).includes('?close'));
+    await chrome.tabs.remove(tabs[1].id);
+    const { closeTabs } = await import('/src/background/tabs.js');
+    await closeTabs(tabs.map((t) => t.id));
+    await sleep(300);
+    const left = (await chrome.tabs.query({ windowId: w.id })).filter((t) => (t.pendingUrl || t.url).includes('?close')).length;
+    await chrome.windows.remove(w.id).catch(() => {});
+    return [{ name: 'closing tabs goes on past one already gone', ok: left === 0, detail: JSON.stringify({ left }) }];
+  })()`);
+}
+
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
 function dropOnCardCheck(cdp) {
   return cdp.eval(`(async () => {
@@ -1042,6 +1112,8 @@ async function main() {
     checks.push(...(await keepAliveCheck(port, pages.dashboard)));
     checks.push(...(await warmCheck(port, pages.dashboard)));
     checks.push(...(await parkedGroupNameCheck(pages.dashboard)));
+    checks.push(...(await rapidSwitchCheck(pages.dashboard)));
+    checks.push(...(await closeTabsCheck(pages.dashboard)));
     checks.push(...(await homeOnSwitchCheck(pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');

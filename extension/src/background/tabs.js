@@ -211,6 +211,14 @@ const isOwnHome = (tab) => (tab.pendingUrl || tab.url || '').startsWith(homeUrl(
  * for a workspace switch: the browser may have frozen the home tab in the background, and a frozen page
  * can't change its icon. `activate` brings it to the front.
  */
+/**
+ * Closes tabs one by one. Closing a list stops at the first tab that's already gone (a login page that
+ * closed itself, say) and leaves the rest open, where they'd be saved into the next workspace.
+ */
+export async function closeTabs(ids) {
+  await Promise.all(ids.map((id) => chrome.tabs.remove(id).catch(() => {})));
+}
+
 export async function ensureHomeTab(windowId, { refresh = false, activate = false } = {}) {
   let tabs;
   try {
@@ -219,7 +227,7 @@ export async function ensureHomeTab(windowId, { refresh = false, activate = fals
     return null; // window is gone
   }
   const [home, ...extra] = tabs.filter(isOwnHome);
-  if (extra.length) await chrome.tabs.remove(extra.map((t) => t.id)).catch(() => {});
+  if (extra.length) await closeTabs(extra.map((t) => t.id));
   try {
     if (!home) {
       return (await chrome.tabs.create({ windowId, url: homeUrl(), pinned: true, index: 0, active: activate })).id;
@@ -251,7 +259,7 @@ export async function syncHomeTabs(enabled) {
     const own = tabs.filter((t) => t.windowId === win.id);
     if (own.length && own.every(isOwnHome)) await chrome.tabs.create({ windowId: win.id, active: true }).catch(() => {});
   }
-  if (homes.length) await chrome.tabs.remove(homes.map((t) => t.id)).catch(() => {});
+  if (homes.length) await closeTabs(homes.map((t) => t.id));
 }
 
 export async function lastFocusedNormalWindow() {

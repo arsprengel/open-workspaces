@@ -130,7 +130,8 @@ export async function closeParked(pick) {
     }
   });
   for (const wsId of wsIds) if (!Object.values(left).some((p) => p.wsId === wsId)) await dropParkedRecord(wsId);
-  if (closing.length) await chrome.tabs.remove(closing).catch(() => {});
+  // One by one: closing a list stops at the first tab already gone.
+  await Promise.all(closing.map((id) => chrome.tabs.remove(id).catch(() => {})));
 }
 
 /** Forgets the record of `wsId`'s parked group (its workspace is gone). */
