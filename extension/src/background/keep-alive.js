@@ -1,7 +1,8 @@
-// Parked tabs: switching away from a workspace gathers its tabs in a collapsed tab group at the end of the
-// window (named and colored like the workspace) instead of closing them; opening the workspace takes them
-// back out, in place and without a reload. Tabs the user marked to keep running wait for as long as it
-// takes; the others only for a while (settings.waitMinutes), in case the switch was a quick look elsewhere.
+// Parked tabs: switching away from a workspace gathers some of its tabs in a collapsed tab group at the end
+// of the window (named and colored like the workspace) instead of closing them: the ones marked to keep
+// running (for as long as it takes), one playing sound (until a while after it goes quiet) and, when
+// settings ask for it, the others too (for a while, in case the switch was a quick look elsewhere).
+// Opening the workspace takes them back out, in place and without a reload.
 // Marks and parked tabs are tab ids, so they live in storage.session. Each parked group's title and URLs
 // are also kept in storage.local, to recognise the group once ids change (browser restart, extension update).
 
@@ -66,7 +67,7 @@ export async function parkTabs(ws, tabs, { marks = {}, orders = null } = {}) {
   for (const id of ids) if (marks[id]) chrome.tabs.update(id, { autoDiscardable: false }).catch(() => {});
   const leftAt = Date.now();
   await update('session', PARKED_KEY, (parked) =>
-    tabs.forEach((t, i) => (parked[t.id] = { wsId: ws.id, order: orders?.[i] ?? i, url: pageOf(t), ...(!marks[t.id] && { leftAt }) })),
+    tabs.forEach((t, i) => (parked[t.id] = { wsId: ws.id, order: orders?.[i] ?? i, url: pageOf(t), ...(!marks[t.id] && { leftAt, ...(t.audible && { sound: true }) }) })),
   );
   const kept = tabs.filter((t) => marks[t.id]).map(pageOf);
   await update('local', PARKED_GROUPS_KEY, (groups) => (groups[ws.id] = { title, urls: tabs.map(pageOf), kept }));
@@ -92,6 +93,13 @@ export async function parkedOf(wsId) {
   return Object.entries(await getParked())
     .filter(([, p]) => p.wsId === wsId)
     .map(([id, p]) => ({ tabId: Number(id), order: p.order, url: p.url }));
+}
+
+/** A waiting tab went quiet: its wait counts from now. True if it is one. */
+export async function noteQuiet(tabId) {
+  if (!(await getParked())[tabId]?.leftAt) return false;
+  await update('session', PARKED_KEY, (parked) => parked[tabId] && (parked[tabId].quietSince = Date.now()));
+  return true;
 }
 
 /** Closes the tabs parked only for a while once they're due (see dueParked) and sets the alarm for the next. */

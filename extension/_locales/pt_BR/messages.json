@@ -693,7 +693,7 @@
     "message": "Manter abertas as abas do workspace que você deixou"
   },
   "warmDesc": {
-    "message": "Elas esperam, ainda carregadas, num grupo recolhido no fim da janela. Se você voltar nesse tempo, reaparecem como estavam, sem recarregar. Cada aba fecha depois desse tempo sem uso; uma aba tocando som espera o som acabar."
+    "message": "Elas esperam, ainda carregadas, num grupo recolhido no fim da janela. Se você voltar nesse tempo, reaparecem como estavam, sem recarregar. Cada aba fecha depois desse tempo sem uso. Uma aba tocando som (vídeo, música, chamada) continua tocando mesmo em \"Fechar na hora\", e fecha 5 minutos depois que o som para."
   },
   "warmOff": {
     "message": "Fechar na hora"

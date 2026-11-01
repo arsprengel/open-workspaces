@@ -185,9 +185,10 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
     // The home tab, kept pinned tabs and other workspaces' parked tabs belong to the window, so they survive the swap.
     const leaving = oldTabs.filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
     // Leaving tabs wait in a collapsed group instead of closing (pinned tabs can't be grouped): those marked
-    // to keep running until the workspace is back, the others for a while, in case this is a quick look.
+    // to keep running until the workspace is back, one playing sound (a video, a call) until a while after
+    // it goes quiet, and when settings ask for it the others for a while, in case this is a quick look.
     const marks = await getMarks();
-    const waits = (t) => !t.pinned && (marks[t.id] || (settings.waitMinutes > 0 && !isNewTabUrl(t.pendingUrl || t.url)));
+    const waits = (t) => !t.pinned && (marks[t.id] || t.audible || (settings.waitMinutes > 0 && !isNewTabUrl(t.pendingUrl || t.url)));
     const orders = leaving.flatMap((t, i) => (waits(t) ? [i] : []));
     const waiting = new Set(await parkTabs(oldWsId && workspaces[oldWsId], orders.map((i) => leaving[i]), { marks, orders }));
     const closing = leaving.filter((t) => !waiting.has(t.id)).map((t) => t.id);

@@ -6,7 +6,7 @@ import { cancelSnapshot, ensureHomeTab, isBusy, lastFocusedNormalWindow, schedul
 import { getState, setWindowWorkspace, workspaceForWindow } from './store.js';
 import { SUSPEND_ALARM, runAutoSuspend, suspendOtherTabs, suspendTabs, syncSuspendAlarm } from './suspender.js';
 import { handleMenuClick, scheduleMenuRebuild, syncKeepAliveMenu } from './menus.js';
-import { PARKED_ALARM, expireParked, forgetTab, recognizeParkedGroups } from './keep-alive.js';
+import { PARKED_ALARM, expireParked, forgetTab, noteQuiet, recognizeParkedGroups } from './keep-alive.js';
 import { maybeSuggestPin, pinTab } from './pin-suggest.js';
 import { KEEP_ALIVE_KEY, MSG, POPUP_INTENT_KEY, STATE_KEY } from '../shared/constants.js';
 
@@ -82,6 +82,11 @@ chrome.windows.onFocusChanged.addListener(() => syncKeepAliveMenu());
 async function expireWaitingTabs() {
   await expireParked((await getState()).settings.waitMinutes).catch((err) => console.warn('[open-workspaces] waiting tabs', err));
 }
+
+// A tab kept running for its sound closes a while after it goes quiet (see dueParked).
+chrome.tabs.onUpdated.addListener((id, info) => {
+  if (info.audible === false) noteQuiet(id).then((waiting) => waiting && expireWaitingTabs(), () => {});
+});
 
 chrome.windows.onRemoved.addListener((windowId) => {
   cancelSnapshot(windowId);

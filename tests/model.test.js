@@ -296,6 +296,31 @@ test('dueParked closes tabs left and unused for a while, never one playing sound
   assert.deepEqual(dueParked({}, tabs, 15, now), { close: [], next: null });
 });
 
+test('dueParked keeps a tab kept for its sound a few minutes after the sound stops', () => {
+  const min = 60_000;
+  const now = 100 * min;
+  const parked = {
+    1: { wsId: 'a', leftAt: now - 30 * min, sound: true, quietSince: now - 2 * min },
+    2: { wsId: 'a', leftAt: now - 30 * min, sound: true, quietSince: now - 6 * min },
+    3: { wsId: 'a', leftAt: now - 30 * min, sound: true },
+  };
+  const tabs = [{ id: 1, lastAccessed: 0 }, { id: 2, lastAccessed: 0 }, { id: 3, audible: true, lastAccessed: 0 }];
+  const { close, next } = dueParked(parked, tabs, 0, now);
+  assert.deepEqual(close, [2], 'closes 5 minutes after the sound stopped, even when tabs left behind close right away');
+  assert.equal(next, now + min);
+  assert.deepEqual(dueParked(parked, tabs, 15, now).close, [], 'a longer wait in settings applies to it too');
+});
+
+test('recognizeParked takes a named group even if a page in it moved on', () => {
+  const records = { a: { title: '⭐ Pessoal', urls: ['https://www.youtube.com/watch?v=1', 'https://x.example/'] } };
+  const groups = [{ title: '⭐ Pessoal', tabs: [{ id: 1, url: 'https://www.youtube.com/watch?v=2' }, { id: 2, url: 'https://x.example/' }] }];
+  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'a', tabIds: [1, 2] }]);
+  const strangers = [{ title: '⭐ Pessoal', tabs: [{ id: 3, url: 'https://other.example/' }] }];
+  assert.deepEqual(recognizeParked(strangers, records), [], 'a group sharing the name but none of the pages is not it');
+  const untitled = { b: { title: '', urls: ['https://b.example/', 'https://b.example/2'] } };
+  assert.deepEqual(recognizeParked([{ title: '', tabs: [{ id: 4, url: 'https://b.example/' }, { id: 5, url: 'https://c.example/' }] }], untitled), [], 'untitled groups still need every page');
+});
+
 test('reparkEntries keeps marked tabs running after a restart and gives the others a fresh wait', () => {
   const tabs = [{ id: 7, url: 'https://chat.example/' }, { id: 8, url: 'https://doc.example/' }];
   const record = { title: 'A', urls: ['https://chat.example/', 'https://doc.example/'], kept: ['https://chat.example/#x'] };

@@ -33,6 +33,7 @@ Gerenciadores como o Workona são ótimos até você passar dez minutos organiza
 - **Troca rápida** (Alt+A) com busca em workspaces, abas salvas e recursos.
 - **Painel lateral** (Alt+S) e **mover aba** para outro workspace (Alt+T).
 - **Opcional: dar uma olhada em outro workspace sai de graça.** Quando você troca, as abas do workspace que ficou para trás esperam, ainda carregadas, num grupo recolhido no fim da janela (desligado por padrão; ligue nas Configurações, de 5 a 60 minutos). Se você voltar nesse tempo, elas reaparecem no lugar, sem recarregar; sem uso por esse tempo, elas fecham (uma aba tocando som espera o som acabar).
+- **O que está tocando continua tocando.** Uma aba tocando som (um vídeo, inclusive em janela flutuante, uma música, uma chamada) continua tocando quando você troca de workspace, e fecha 5 minutos depois que o som para, a menos que você volte antes.
 - **Abas que continuam rodando.** Marque uma aba com o botão de raio (ou clique com o botão direito na página) e ela continua funcionando enquanto você está em outro workspace: fica num grupo recolhido no fim da janela e volta para o lugar, sem recarregar.
 - **Suspensão de abas** nativa: abas restauradas carregam sob demanda e há suspensão automática opcional (máximo de N abas na memória ou após X minutos sem uso), com exceções.
 - **Arquivar, duplicar, reordenar**, **backup** em JSON, **tema claro/escuro**, inglês e português.

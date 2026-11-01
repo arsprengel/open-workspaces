@@ -829,6 +829,66 @@ function closeTabsCheck(dash) {
   })()`);
 }
 
+/**
+ * A tab playing sound (a video, a call) keeps playing through a switch, even with tabs left behind set to
+ * close right away: it waits in the workspace's group and comes back in place without a reload.
+ */
+async function soundCheck(port, dash) {
+  const U = ['https://example.com/?sound1', 'https://example.com/?sound2'];
+  const ev = (code) => dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    const waitFor = async (fn, ms = 8000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(200); } return false; };
+    ${code}
+  })()`);
+  const s = await ev(`
+    const win = await chrome.windows.create({ url: ${JSON.stringify(U)}, focused: false });
+    await sleep(2000);
+    const { id: sound } = await call('createWorkspace', { name: 'Sound', fromWindowId: win.id });
+    const { id: quiet } = await call('createWorkspace', { name: 'Quiet' });
+    const tabs = await chrome.tabs.query({ windowId: win.id });
+    return { windowId: win.id, sound, quiet, playing: tabs.find((t) => t.url === ${JSON.stringify(U[0])}).id, silent: tabs.find((t) => t.url === ${JSON.stringify(U[1])}).id };`);
+  const target = (await getJson(port, '/json/list')).find((x) => x.url === U[0]);
+  const page = new Cdp(target.webSocketDebuggerUrl);
+  await page.ready;
+  // A closed tab never answers: give up instead of waiting forever.
+  const tryEval = (expr) => Promise.race([page.eval(expr).catch(() => null), sleep(1500).then(() => null)]);
+  await page.eval(`(() => { const ctx = new AudioContext(); const o = ctx.createOscillator(); const g = ctx.createGain(); g.gain.value = 0.1; o.connect(g).connect(ctx.destination); o.start(); window.__o = o; window.__kept = 'still here'; })()`);
+  const away = await ev(`
+    const audible = await waitFor(async () => (await get(${s.playing}))?.audible);
+    await call('openWorkspace', { id: ${JSON.stringify(s.quiet)}, windowId: ${s.windowId} });
+    await sleep(800);
+    const playing = await get(${s.playing});
+    return { audible, kept: !!playing && playing.groupId >= 0 && playing.windowId === ${s.windowId}, silentClosed: !(await get(${s.silent})) };`);
+  const aliveAway = await tryEval(`window.__kept`);
+  await tryEval(`window.__o.stop()`);
+  const quieted = await ev(`
+    const stopped = await waitFor(async () => (await get(${s.playing}))?.audible === false);
+    await sleep(600);
+    const { parked } = await chrome.storage.session.get('parked');
+    return { stopped, graced: !!(await get(${s.playing})) && !!parked?.[${s.playing}]?.quietSince };`);
+  const back = await ev(`
+    await call('openWorkspace', { id: ${JSON.stringify(s.sound)}, windowId: ${s.windowId} });
+    await sleep(800);
+    const tabs = (await chrome.tabs.query({ windowId: ${s.windowId} })).filter((t) => (t.pendingUrl || t.url).startsWith('https://'));
+    return { inPlace: tabs[0]?.id === ${s.playing} && tabs[0].groupId === -1, both: tabs.map((t) => t.pendingUrl || t.url).join() === ${JSON.stringify(U.join())} };`);
+  const aliveBack = await tryEval(`window.__kept`);
+  page.close();
+  await ev(`
+    await chrome.windows.remove(${s.windowId});
+    for (const id of [${JSON.stringify(s.sound)}, ${JSON.stringify(s.quiet)}]) await call('deleteWorkspace', { id });`);
+  const detail = JSON.stringify({ away, aliveAway, quieted, back, aliveBack });
+  return [
+    { name: 'a tab playing sound keeps playing through a switch, the silent ones close', ok: away.audible && away.kept && away.silentClosed && aliveAway === 'still here', detail },
+    { name: 'once quiet it gets a few minutes, and comes back in place without a reload', ok: quieted.stopped && quieted.graced && back.inPlace && back.both && aliveBack === 'still here', detail },
+  ];
+}
+
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
 function dropOnCardCheck(cdp) {
   return cdp.eval(`(async () => {
@@ -1053,6 +1113,8 @@ async function main() {
     '--disable-background-timer-throttling',
     '--disable-renderer-backgrounding',
     '--disable-backgrounding-occluded-windows',
+    // Lets a test page play sound without a click, for the tab-playing-sound check.
+    '--autoplay-policy=no-user-gesture-required',
     ...(pinSite ? [`--host-resolver-rules=MAP web.whatsapp.com 127.0.0.1:${pinSite.address().port}`, '--ignore-certificate-errors'] : []),
     ...(process.env.HEADED ? [] : ['--headless=new']),
     'about:blank',
@@ -1114,6 +1176,7 @@ async function main() {
     checks.push(...(await parkedGroupNameCheck(pages.dashboard)));
     checks.push(...(await rapidSwitchCheck(pages.dashboard)));
     checks.push(...(await closeTabsCheck(pages.dashboard)));
+    checks.push(...(await soundCheck(port, pages.dashboard)));
     checks.push(...(await homeOnSwitchCheck(pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');
