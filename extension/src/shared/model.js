@@ -175,7 +175,8 @@ export function dueParked(parked, tabs, minutes, now) {
 
 /**
  * Parked entries for a group recognised after a restart (see recognizeParked): tabs whose page the record
- * lists as kept alive stay marked, the others wait afresh from `now`. Older records only held marked tabs.
+ * lists as kept alive stay marked, the others wait afresh from `now` (one still playing keeps its grace
+ * once quiet). Older records only held marked tabs.
  * @returns {{entries:Record<number, object>, kept:number[]}}
  */
 export function reparkEntries(wsId, tabs, record, now) {
@@ -184,7 +185,7 @@ export function reparkEntries(wsId, tabs, record, now) {
   const marked = [];
   tabs.forEach((t, order) => {
     const keep = !kept || kept.has(normalizeUrl(t.url));
-    entries[t.id] = { wsId, order, url: t.url, ...(!keep && { leftAt: now }) };
+    entries[t.id] = { wsId, order, url: t.url, ...(!keep && { leftAt: now, ...(t.audible && { sound: true }) }) };
     if (keep) marked.push(t.id);
   });
   return { entries, kept: marked };
@@ -211,8 +212,7 @@ export function nearestGroupColor(hex) {
 
 /**
  * Finds parked groups again after their tab ids changed (browser restart, extension update): a group
- * whose title is a workspace's recorded parked title and that shows its recorded pages (all of them when
- * the group is untitled, at least one when it's named).
+ * whose title is a workspace's recorded parked title (and, when untitled, that shows only its pages).
  * @param {{title:string, tabs:{id:number, url:string}[]}[]} groups
  * @param {Record<string, {title:string, urls:string[]}>} records wsId -> recorded parked group
  * @returns {{wsId:string, tabIds:number[]}[]}
@@ -220,20 +220,23 @@ export function nearestGroupColor(hex) {
 export function recognizeParked(groups, records) {
   const found = [];
   const taken = new Set();
-  // Several records can share a title (same workspace name, or untitled): the pages tell them apart. A named
-  // group is its workspace's even if a page moved on while it waited (a video playing the next one); an
-  // untitled one has only its pages to go by, so they all must match.
-  const covers = (r, group) => {
+  const known = (r, group) => {
     const urls = new Set(r.urls.map(normalizeUrl));
-    const known = group.tabs.filter((t) => urls.has(normalizeUrl(t.url))).length;
-    return group.title ? known > 0 : known === group.tabs.length;
+    return group.tabs.filter((t) => urls.has(normalizeUrl(t.url))).length;
   };
   for (const group of groups) {
     if (!group.tabs.length) continue;
-    const entry = Object.entries(records).find(([wsId, r]) => !taken.has(wsId) && r.title === group.title && covers(r, group));
-    if (!entry) continue;
-    taken.add(entry[0]);
-    found.push({ wsId: entry[0], tabIds: group.tabs.map((t) => t.id) });
+    // A named group is its workspace's by the name alone: every page in it may have moved on while it waited
+    // (a video playing the next one), so pages only pick between workspaces sharing a name. An untitled
+    // group has nothing but its pages to go by: they all must match.
+    const [best] = Object.entries(records)
+      .filter(([wsId, r]) => !taken.has(wsId) && r.title === group.title)
+      .map(([wsId, r]) => ({ wsId, score: known(r, group) }))
+      .filter((c) => group.title || c.score === group.tabs.length)
+      .sort((x, y) => y.score - x.score);
+    if (!best) continue;
+    taken.add(best.wsId);
+    found.push({ wsId: best.wsId, tabIds: group.tabs.map((t) => t.id) });
   }
   return found;
 }

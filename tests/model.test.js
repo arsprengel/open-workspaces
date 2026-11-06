@@ -231,7 +231,7 @@ test('nearestGroupColor maps workspace colors onto the browser group palette', (
   assert.equal(nearestGroupColor('nope'), 'grey');
 });
 
-test('recognizeParked finds parked groups by recorded title and URLs', () => {
+test('recognizeParked finds parked groups by recorded title', () => {
   const records = { a: { title: '🚀 Alpha', urls: ['https://chat.example/', 'https://music.example/x'] }, b: { title: 'Beta', urls: ['https://b.example/'] } };
   const groups = [
     { title: 'Work stuff', tabs: [{ id: 1, url: 'https://chat.example/' }] },
@@ -239,7 +239,7 @@ test('recognizeParked finds parked groups by recorded title and URLs', () => {
     { title: 'Beta', tabs: [{ id: 4, url: 'https://other.example/' }] },
     { title: '🚀 Alpha', tabs: [{ id: 5, url: 'https://chat.example/' }] },
   ];
-  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'a', tabIds: [2, 3] }]);
+  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'a', tabIds: [2, 3] }, { wsId: 'b', tabIds: [4] }]);
   assert.deepEqual(recognizeParked([{ title: 'Beta', tabs: [] }], records), []);
 });
 
@@ -311,24 +311,30 @@ test('dueParked keeps a tab kept for its sound a few minutes after the sound sto
   assert.deepEqual(dueParked(parked, tabs, 15, now).close, [], 'a longer wait in settings applies to it too');
 });
 
-test('recognizeParked takes a named group even if a page in it moved on', () => {
+test('recognizeParked takes a named group by its name, even if every page in it moved on', () => {
   const records = { a: { title: '⭐ Pessoal', urls: ['https://www.youtube.com/watch?v=1', 'https://x.example/'] } };
   const groups = [{ title: '⭐ Pessoal', tabs: [{ id: 1, url: 'https://www.youtube.com/watch?v=2' }, { id: 2, url: 'https://x.example/' }] }];
   assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'a', tabIds: [1, 2] }]);
-  const strangers = [{ title: '⭐ Pessoal', tabs: [{ id: 3, url: 'https://other.example/' }] }];
-  assert.deepEqual(recognizeParked(strangers, records), [], 'a group sharing the name but none of the pages is not it');
+  const nextVideo = [{ title: '⭐ Pessoal', tabs: [{ id: 3, url: 'https://www.youtube.com/watch?v=3' }] }];
+  assert.deepEqual(recognizeParked(nextVideo, records), [{ wsId: 'a', tabIds: [3] }], 'its only tab went on to the next video');
+  const twins = { a: { title: 'Work', urls: ['https://a.example/'] }, b: { title: 'Work', urls: ['https://b.example/'] } };
+  assert.deepEqual(recognizeParked([{ title: 'Work', tabs: [{ id: 4, url: 'https://b.example/' }] }], twins), [{ wsId: 'b', tabIds: [4] }], 'same name: the pages pick which');
   const untitled = { b: { title: '', urls: ['https://b.example/', 'https://b.example/2'] } };
-  assert.deepEqual(recognizeParked([{ title: '', tabs: [{ id: 4, url: 'https://b.example/' }, { id: 5, url: 'https://c.example/' }] }], untitled), [], 'untitled groups still need every page');
+  assert.deepEqual(recognizeParked([{ title: '', tabs: [{ id: 5, url: 'https://b.example/' }, { id: 6, url: 'https://c.example/' }] }], untitled), [], 'untitled groups still need every page');
 });
 
 test('reparkEntries keeps marked tabs running after a restart and gives the others a fresh wait', () => {
-  const tabs = [{ id: 7, url: 'https://chat.example/' }, { id: 8, url: 'https://doc.example/' }];
-  const record = { title: 'A', urls: ['https://chat.example/', 'https://doc.example/'], kept: ['https://chat.example/#x'] };
+  const tabs = [{ id: 7, url: 'https://chat.example/' }, { id: 8, url: 'https://doc.example/' }, { id: 9, url: 'https://video.example/', audible: true }];
+  const record = { title: 'A', urls: ['https://chat.example/', 'https://doc.example/', 'https://video.example/'], kept: ['https://chat.example/#x'] };
   assert.deepEqual(reparkEntries('a', tabs, record, 500), {
-    entries: { 7: { wsId: 'a', order: 0, url: 'https://chat.example/' }, 8: { wsId: 'a', order: 1, url: 'https://doc.example/', leftAt: 500 } },
+    entries: {
+      7: { wsId: 'a', order: 0, url: 'https://chat.example/' },
+      8: { wsId: 'a', order: 1, url: 'https://doc.example/', leftAt: 500 },
+      9: { wsId: 'a', order: 2, url: 'https://video.example/', leftAt: 500, sound: true },
+    },
     kept: [7],
   });
-  assert.deepEqual(reparkEntries('a', tabs, { title: 'A', urls: record.urls }, 500).kept, [7, 8], 'older records only held marked tabs');
+  assert.deepEqual(reparkEntries('a', tabs, { title: 'A', urls: record.urls }, 500).kept, [7, 8, 9], 'older records only held marked tabs');
 });
 
 test('keepAliveMatches finds the live tabs behind kept-alive saved tabs', () => {
