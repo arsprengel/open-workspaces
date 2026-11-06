@@ -6,7 +6,7 @@ import { cancelSnapshot, ensureHomeTab, isBusy, lastFocusedNormalWindow, schedul
 import { getState, setWindowWorkspace, workspaceForWindow } from './store.js';
 import { SUSPEND_ALARM, runAutoSuspend, suspendOtherTabs, suspendTabs, syncSuspendAlarm } from './suspender.js';
 import { handleMenuClick, scheduleMenuRebuild, syncKeepAliveMenu } from './menus.js';
-import { PARKED_ALARM, expireParked, forgetTab, recognizeParkedGroups } from './keep-alive.js';
+import { PARKED_ALARM, expireParked, forgetTab, noteQuiet, recognizeParkedGroups } from './keep-alive.js';
 import { maybeSuggestPin, pinTab } from './pin-suggest.js';
 import { KEEP_ALIVE_KEY, MSG, POPUP_INTENT_KEY, STATE_KEY } from '../shared/constants.js';
 
@@ -80,8 +80,13 @@ chrome.windows.onFocusChanged.addListener(() => syncKeepAliveMenu());
 
 /** Closes the tabs of closed workspaces whose wait is over, and sets the alarm for the next. */
 async function expireWaitingTabs() {
-  await expireParked((await getState()).settings.warmMinutes).catch((err) => console.warn('[open-workspaces] waiting tabs', err));
+  await expireParked((await getState()).settings.waitMinutes).catch((err) => console.warn('[open-workspaces] waiting tabs', err));
 }
+
+// A tab kept running for its sound closes a while after it goes quiet (see dueParked).
+chrome.tabs.onUpdated.addListener((id, info) => {
+  if (info.audible === false) noteQuiet(id).then((waiting) => waiting && expireWaitingTabs(), () => {});
+});
 
 chrome.windows.onRemoved.addListener((windowId) => {
   cancelSnapshot(windowId);
@@ -145,7 +150,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (JSON.stringify(before?.settings) !== JSON.stringify(after?.settings)) {
     applyActionBehavior();
     syncSuspendAlarm();
-    if (before?.settings?.warmMinutes !== after?.settings?.warmMinutes) expireWaitingTabs();
+    if (before?.settings?.waitMinutes !== after?.settings?.waitMinutes) expireWaitingTabs();
   }
   if (before && after && before.settings?.homeTab !== after.settings?.homeTab) syncHomeTabs(after.settings.homeTab !== false);
   const menuKey = (s) => JSON.stringify((s?.order ?? []).map((id) => [id, s.workspaces[id]?.name, s.workspaces[id]?.icon, s.workspaces[id]?.archived]));

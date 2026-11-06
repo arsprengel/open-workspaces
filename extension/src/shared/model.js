@@ -1,6 +1,6 @@
 // Pure data helpers. No chrome.* calls in here, so everything is unit-testable in Node.
 
-import { APP_ID, COLORS, DEFAULT_SETTINGS, PIN_SITES, SCHEMA_VERSION } from './constants.js';
+import { APP_ID, COLORS, DEFAULT_SETTINGS, PIN_SITES, SCHEMA_VERSION, SOUND_GRACE_MINUTES } from './constants.js';
 
 export function uid() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -150,16 +150,19 @@ export function pairParked(savedTabs, parked) {
 
 /**
  * Which tabs parked only for a while (`leftAt` set, i.e. not marked to keep running) are due to close:
- * those unused for `minutes` since they left or were last looked at. One playing sound or in front waits.
+ * those unused for `minutes` since they left or were last looked at. One playing sound or in front waits;
+ * one kept because it was playing (`sound`) gets at least SOUND_GRACE_MINUTES after its sound stopped.
  * @returns {{close:number[], next:number|null}} `next`: when to look again, null when nothing waits.
  */
 export function dueParked(parked, tabs, minutes, now) {
   const close = [];
   let next = null;
   for (const tab of tabs) {
-    const leftAt = parked[tab.id]?.leftAt;
-    if (!leftAt) continue;
-    const due = minutes > 0 ? Math.max(leftAt, tab.lastAccessed ?? 0) + minutes * 60_000 : now;
+    const p = parked[tab.id];
+    if (!p?.leftAt) continue;
+    const wait = p.sound ? Math.max(minutes, SOUND_GRACE_MINUTES) : minutes;
+    const since = Math.max(p.leftAt, tab.lastAccessed ?? 0, p.quietSince ?? 0);
+    const due = wait > 0 ? since + wait * 60_000 : now;
     if (due <= now && !tab.audible && !tab.active) {
       close.push(tab.id);
       continue;
@@ -208,7 +211,8 @@ export function nearestGroupColor(hex) {
 
 /**
  * Finds parked groups again after their tab ids changed (browser restart, extension update): a group
- * whose title is a workspace's recorded parked title and whose tabs all are recorded URLs of it.
+ * whose title is a workspace's recorded parked title and that shows its recorded pages (all of them when
+ * the group is untitled, at least one when it's named).
  * @param {{title:string, tabs:{id:number, url:string}[]}[]} groups
  * @param {Record<string, {title:string, urls:string[]}>} records wsId -> recorded parked group
  * @returns {{wsId:string, tabIds:number[]}[]}
@@ -216,11 +220,18 @@ export function nearestGroupColor(hex) {
 export function recognizeParked(groups, records) {
   const found = [];
   const taken = new Set();
+  // Several records can share a title (same workspace name, or untitled): the pages tell them apart. A named
+  // group is its workspace's even if a page moved on while it waited (a video playing the next one); an
+  // untitled one has only its pages to go by, so they all must match.
+  const covers = (r, group) => {
+    const urls = new Set(r.urls.map(normalizeUrl));
+    const known = group.tabs.filter((t) => urls.has(normalizeUrl(t.url))).length;
+    return group.title ? known > 0 : known === group.tabs.length;
+  };
   for (const group of groups) {
-    const entry = Object.entries(records).find(([wsId, r]) => !taken.has(wsId) && r.title === group.title);
-    if (!entry || !group.tabs.length) continue;
-    const urls = new Set(entry[1].urls.map(normalizeUrl));
-    if (!group.tabs.every((t) => urls.has(normalizeUrl(t.url)))) continue;
+    if (!group.tabs.length) continue;
+    const entry = Object.entries(records).find(([wsId, r]) => !taken.has(wsId) && r.title === group.title && covers(r, group));
+    if (!entry) continue;
     taken.add(entry[0]);
     found.push({ wsId: entry[0], tabIds: group.tabs.map((t) => t.id) });
   }

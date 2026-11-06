@@ -46,7 +46,8 @@ Workspace managers like Workona are great until you've spent ten minutes organiz
 - **Quick switcher** (Alt+A): keyboard-first search across workspaces, saved tabs and resources.
 - **Side panel** (Alt+S) with every workspace one click away.
 - **Move tabs** to another workspace (Alt+T, right-click menu or drag and drop).
-- **Quick looks elsewhere are free.** When you switch away, the workspace's tabs wait, still loaded, in a collapsed tab group at the end of the window (15 minutes by default, adjustable or off). Come back in time and they return in place, without a reload; unused for that long, they close (a tab playing sound waits for it to stop).
+- **Optional: quick looks elsewhere are free.** When you switch away, the workspace's tabs wait, still loaded, in a collapsed tab group at the end of the window (off by default; turn it on in settings for 5 to 60 minutes). Come back in time and they return in place, without a reload; unused for that long, they close (a tab playing sound waits for it to stop).
+- **What's playing keeps playing.** A tab playing sound (a video, also in picture-in-picture, music, a call) keeps playing when you switch workspaces, and closes 5 minutes after it goes quiet unless you come back first.
 - **Keep tabs running.** Mark a tab with the lightning button (or right-click the page) and it keeps running while you're in another workspace: it waits in a collapsed tab group at the end of the window and comes back in place, without a reload.
 - **Tab suspension** using the browser's native tab discarding: restored tabs load on demand, plus optional auto-suspend (keep at most N tabs in memory, or suspend after X minutes of inactivity) with exclusions for pinned tabs, tabs playing audio and a domain/URL list.
 - **Archive, duplicate, reorder** workspaces.

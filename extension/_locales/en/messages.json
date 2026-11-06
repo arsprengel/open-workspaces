@@ -693,7 +693,7 @@
     "message": "Keep the tabs of a workspace you leave open"
   },
   "warmDesc": {
-    "message": "They wait, still loaded, in a collapsed group at the end of the window. Come back in time and they return as they were, without reloading. Each tab closes after this long unused; one playing sound waits for it to stop."
+    "message": "They wait, still loaded, in a collapsed group at the end of the window. Come back in time and they return as they were, without reloading. Each tab closes after this long unused. A tab playing sound (a video, music, a call) keeps playing even when set to close right away, and closes 5 minutes after it goes quiet."
   },
   "warmOff": {
     "message": "Close right away"
