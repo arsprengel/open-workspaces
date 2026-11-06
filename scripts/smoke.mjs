@@ -889,6 +889,84 @@ async function soundCheck(port, dash) {
   ];
 }
 
+/**
+ * A tab of another workspace playing in this window stays that workspace's: after you look at it (which
+ * opens its group), and after the extension reloads while it plays the next video (its page moved on).
+ */
+async function playingElsewhereCheck(port, dash) {
+  const ev = (code) => dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    ${code}
+  })()`);
+  const play = async (url) => {
+    const target = (await getJson(port, '/json/list')).find((x) => x.url === url);
+    const page = new Cdp(target.webSocketDebuggerUrl);
+    await page.ready;
+    await page.eval(`(() => { const ctx = new AudioContext(); const o = ctx.createOscillator(); const g = ctx.createGain(); g.gain.value = 0.1; o.connect(g).connect(ctx.destination); o.start(); })()`);
+    page.close();
+  };
+  const s = await ev(`
+    const make = async (name, urls, keep) => {
+      const w = await chrome.windows.create({ url: urls, focused: false });
+      await sleep(1500);
+      const { id } = await call('createWorkspace', { name, fromWindowId: w.id });
+      await sleep(400);
+      if (!keep) await chrome.windows.remove(w.id);
+      return { id, windowId: w.id };
+    };
+    const home = await make('Listening', ['https://example.com/?video', 'https://example.com/?listening2'], true);
+    const work = await make('Working', ['https://example.org/?working'], false);
+    const other = await make('Elsewhere', ['https://example.net/?elsewhere'], false);
+    const video = (await chrome.tabs.query({ windowId: home.windowId })).find((t) => t.url === 'https://example.com/?video').id;
+    return { listening: home.id, working: work.id, elsewhere: other.id, windowId: home.windowId, video };`);
+  await play('https://example.com/?video');
+  const probe = `
+    const tab = await get(${s.video});
+    const group = tab?.groupId >= 0 ? await chrome.tabGroups.get(tab.groupId) : null;
+    const { parked } = await chrome.storage.session.get('parked');
+    const { state } = await chrome.storage.local.get('state');
+    return {
+      owner: parked?.[${s.video}]?.wsId === ${JSON.stringify(s.listening)},
+      group: group && group.title + (group.collapsed ? ' collapsed' : ' open'),
+      notInWorking: !state.workspaces[${JSON.stringify(s.working)}].tabs.some((t) => t.url.includes('?video')),
+    };`;
+  const looked = await ev(`
+    await sleep(1500);
+    await call('openWorkspace', { id: ${JSON.stringify(s.working)}, windowId: ${s.windowId} });
+    await sleep(800);
+    await chrome.tabs.update(${s.video}, { active: true });
+    await sleep(800);
+    await chrome.tabs.update(${s.video}, { url: 'https://example.com/?video-next' });
+    await sleep(1500);`);
+  await play('https://example.com/?video-next');
+  const reloaded = await ev(`
+    await sleep(1500);
+    // As after an extension reload: the record of which tab waits for which workspace is gone.
+    await chrome.storage.session.remove('parked');
+    const { recognizeParkedGroups } = await import('/src/background/keep-alive.js');
+    await recognizeParkedGroups(${s.windowId});
+    await sleep(2500);
+    ${probe}`);
+  const moved = await ev(`
+    await call('openWorkspace', { id: ${JSON.stringify(s.elsewhere)}, windowId: ${s.windowId} });
+    await sleep(1000);
+    ${probe}`);
+  await ev(`
+    await chrome.windows.remove(${s.windowId});
+    for (const id of [${JSON.stringify(s.listening)}, ${JSON.stringify(s.working)}, ${JSON.stringify(s.elsewhere)}]) await call('deleteWorkspace', { id });`);
+  const detail = JSON.stringify({ looked, reloaded, moved });
+  return [
+    { name: "another workspace's playing tab stays its own after a reload, though its page moved on", ok: reloaded.owner && reloaded.notInWorking && moved.owner && moved.notInWorking, detail },
+    { name: 'switching folds the other workspaces groups back up', ok: moved.group === 'Listening collapsed', detail },
+  ];
+}
+
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
 function dropOnCardCheck(cdp) {
   return cdp.eval(`(async () => {
@@ -1177,6 +1255,7 @@ async function main() {
     checks.push(...(await rapidSwitchCheck(pages.dashboard)));
     checks.push(...(await closeTabsCheck(pages.dashboard)));
     checks.push(...(await soundCheck(port, pages.dashboard)));
+    checks.push(...(await playingElsewhereCheck(port, pages.dashboard)));
     checks.push(...(await homeOnSwitchCheck(pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');

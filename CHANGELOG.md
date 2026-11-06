@@ -24,6 +24,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - A save that was already running when you switched workspaces could finish late and briefly store a half-switched tab list.
 - Workspaces could swallow each other's tabs, more of them on every switch: clicking another workspace while a switch was still running left the tabs of the ones in between in the window, saved into the last one. Switches now run one at a time, and of several quick clicks only the last is carried out.
 - A tab of the workspace being left that had already closed by itself (a login page, for one) kept the tabs after it from closing, so they ended up in the next workspace.
+- A tab of another workspace waiting in the window (a video still playing, say) could be taken for the current workspace's after the extension reloaded or the browser restarted, if its page had moved on meanwhile (the next video): it was then saved into, and stuck to, the workspace on screen. A waiting group is now recognised by its workspace name alone, and switching folds waiting groups back up.
 
 ## [0.1.0] - 2026-10-29
 
