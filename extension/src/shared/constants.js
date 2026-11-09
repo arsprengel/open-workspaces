@@ -26,11 +26,17 @@ export const PARKED_KEY = 'parked';
 /** Minutes a tab kept running because it was playing sound waits, once quiet, before it closes. */
 export const SOUND_GRACE_MINUTES = 5;
 /**
- * chrome.storage.local key: title and URLs of each workspace's parked group (wsId -> {title, urls, kept}),
- * `kept` being the URLs of tabs marked to keep running, so the group is recognised again after a browser
- * restart or extension update, when tab ids change.
+ * chrome.storage.local key: each workspace's parked group (wsId -> {title, tabs: [{id, order, url, now, keep}]}),
+ * kept up to date while it waits: the tab id, its place in the workspace, its page when it left (`url`) and
+ * now (`now`), and whether it's marked to keep running. With it the group is recognised again after a
+ * browser restart or extension update, when tab ids change. Older versions stored {title, urls, kept}.
  */
 export const PARKED_GROUPS_KEY = 'parkedGroups';
+/**
+ * Invisible character (word joiner) ending the title of every parked group: a group of the user's with
+ * a workspace's name is never taken for that workspace's parked group.
+ */
+export const PARKED_MARK = '⁠';
 
 /**
  * Always-on sites (mail, chat, calendar, music) that belong next to the home tab rather than in one

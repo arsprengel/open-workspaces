@@ -542,7 +542,7 @@ async function keepAliveCheck(port, dash) {
 
   return [
     { name: 'keep-alive mark is saved with the tab', ok: marked === 'false,true', detail: marked },
-    { name: 'switching away parks the kept tab in a collapsed group named after its workspace', ok: away.inWindow && away.last && away.group?.title === '⚡ Keep' && away.group.collapsed && away.group.color === 'green', detail: JSON.stringify(away) },
+    { name: 'switching away parks the kept tab in a collapsed group named after its workspace', ok: away.inWindow && away.last && away.group?.title === '⚡ Keep\u2060' && away.group.collapsed && away.group.color === 'green', detail: JSON.stringify(away) },
     { name: 'the other tabs close and the parked tab is not saved into the new workspace', ok: away.otherClosed && away.notSavedInOther, detail: JSON.stringify(away) },
     { name: 'the parked tab keeps running (no reload)', ok: aliveAway === 'still here', detail: String(aliveAway) },
     { name: 'switching back returns the same tab in place, out of the group', ok: back.urls === K.join() && back.sameTab && back.ungrouped && back.groupsLeft === 0 && back.stillMarked, detail: JSON.stringify(back) },
@@ -661,7 +661,7 @@ async function warmCheck(port, dash) {
     const { state } = await chrome.storage.local.get('state');
     return {
       waiting: tabs.every((t) => t && t.windowId === ${windowId} && t.groupId >= 0 && t.groupId === tabs[0].groupId),
-      collapsed: !!group?.collapsed && group.title === '🔥 Warm' && group.color === 'orange',
+      collapsed: !!group?.collapsed && group.title === '🔥 Warm\\u2060' && group.color === 'orange',
       notInOther: !state.workspaces[${JSON.stringify(other)}].tabs.some((t) => t.url.includes('warm')),
       alarm: !!(await chrome.alarms.get('ow-parked')),
     };`);
@@ -738,7 +738,7 @@ function parkedGroupNameCheck(dash) {
     await call('openWorkspace', { id: other, windowId: win.id });
     await sleep(800);
     const groupId = (await chrome.tabs.get(tab.id)).groupId;
-    const named = (await chrome.tabGroups.get(groupId)).title === 'Legacy';
+    const named = (await chrome.tabGroups.get(groupId)).title === 'Legacy\\u2060';
     // As an earlier version left it, and as an update finds it: untitled group, no record of the tab id.
     await chrome.tabGroups.update(groupId, { title: '' });
     const { parkedGroups } = await chrome.storage.local.get('parkedGroups');
@@ -755,7 +755,7 @@ function parkedGroupNameCheck(dash) {
     await chrome.windows.remove(win.id);
     for (const id of [legacy, other]) await call('deleteWorkspace', { id });
     const r = { named, after, tracked, record };
-    return [{ name: 'a parked group recognised after an update gets its workspace name back', ok: named && after === 'Legacy' && tracked && record === 'Legacy', detail: JSON.stringify(r) }];
+    return [{ name: 'a parked group recognised after an update gets its workspace name back', ok: named && after === 'Legacy\\u2060' && tracked && record === 'Legacy', detail: JSON.stringify(r) }];
   })()`);
 }
 
@@ -963,8 +963,352 @@ async function playingElsewhereCheck(port, dash) {
   const detail = JSON.stringify({ looked, reloaded, moved });
   return [
     { name: "another workspace's playing tab stays its own after a reload, though its page moved on", ok: reloaded.owner && reloaded.notInWorking && moved.owner && moved.notInWorking, detail },
-    { name: 'switching folds the other workspaces groups back up', ok: moved.group === 'Listening collapsed', detail },
+    { name: 'switching folds the other workspaces groups back up', ok: moved.group === 'Listening\u2060 collapsed', detail },
   ];
+}
+
+/**
+ * A tab marked to keep running waits for its workspace and goes to another page; then the extension reloads
+ * (which forgets which tab waits for which workspace). It must still wait, marked, and come back in place,
+ * while a group of the user's named like the workspace stays the user's. Marking a tab that waits for a while
+ * makes it wait for good.
+ */
+function markedReloadCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    const pageOf = (t) => t.pendingUrl || t.url;
+    const web = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => pageOf(t).startsWith('https://'));
+    const make = async (name, urls, keep) => {
+      const w = await chrome.windows.create({ url: urls, focused: false });
+      await sleep(1500);
+      const { id } = await call('createWorkspace', { name, fromWindowId: w.id });
+      await sleep(400);
+      if (!keep) await chrome.windows.remove(w.id);
+      return { id, windowId: w.id };
+    };
+    const session = async (key) => (await chrome.storage.session.get(key))[key] ?? {};
+    const argus = await make('Argus', ['https://example.com/?panel', 'https://example.com/?a2'], true);
+    const other = await make('Argus elsewhere', ['https://example.org/?elsewhere'], false);
+    const win = argus.windowId;
+    const panel = (await web(win)).find((t) => pageOf(t).endsWith('?panel')).id;
+    await call('setKeepAlive', { tabId: panel, keep: true });
+    const neverDiscarded = (await get(panel)).autoDiscardable === false;
+    const mineWin = await chrome.windows.create({ url: 'https://example.net/?mine', focused: false });
+    await sleep(1000);
+    const mine = (await web(mineWin.id))[0].id;
+    const mineGroup = await chrome.tabs.group({ tabIds: [mine], createProperties: { windowId: mineWin.id } });
+    await chrome.tabGroups.update(mineGroup, { title: 'Argus', collapsed: true });
+
+    await call('openWorkspace', { id: other.id, windowId: win });
+    await sleep(1200);
+    const title = (await chrome.tabGroups.get((await get(panel)).groupId)).title;
+    await chrome.tabs.update(panel, { url: 'https://example.com/?panel-moved' });
+    await sleep(1500);
+    await chrome.storage.session.remove(['parked', 'keepAlive']);
+    const ka = await import('/src/background/keep-alive.js');
+    await ka.recognizeParkedGroups();
+    await ka.expireParked(0);
+    await sleep(800);
+    const parked = await session('parked');
+    const reloaded = {
+      title,
+      alive: !!(await get(panel)),
+      marked: !!(await session('keepAlive'))[panel],
+      waiting: !!parked[panel] && !parked[panel].leftAt,
+      mineFree: !parked[mine] && (await get(mine))?.groupId === mineGroup && (await chrome.tabGroups.get(mineGroup)).title === 'Argus',
+    };
+
+    await call('openWorkspace', { id: argus.id, windowId: win });
+    await sleep(1200);
+    const own = await web(win);
+    const back = { sameTab: own[0]?.id === panel, pages: own.map((t) => pageOf(t).split('?')[1]).join(), ungrouped: own.every((t) => t.groupId === -1) };
+
+    await call('updateSettings', { patch: { waitMinutes: 15 } });
+    const a2 = own.find((t) => pageOf(t).endsWith('?a2')).id;
+    await call('openWorkspace', { id: other.id, windowId: win });
+    await sleep(1000);
+    const waitedFor = !!(await session('parked'))[a2]?.leftAt;
+    await chrome.tabs.update(a2, { active: true });
+    await call('setKeepAlive', { tabId: a2, keep: true });
+    await sleep(300);
+    const entry = (await session('parked'))[a2];
+    const record = (await chrome.storage.local.get('parkedGroups')).parkedGroups[argus.id];
+    const marking = { waitedFor, forGood: !!entry && !entry.leftAt, recorded: record?.tabs?.find((t) => t.id === a2)?.keep === true };
+    await call('updateSettings', { patch: { waitMinutes: 0 } });
+
+    for (const id of [win, mineWin.id]) await chrome.windows.remove(id);
+    for (const id of [argus.id, other.id]) await call('deleteWorkspace', { id });
+    const detail = JSON.stringify({ neverDiscarded, reloaded, back, marking });
+    return [
+      { name: 'a tab marked to keep running is never put to sleep by the browser', ok: neverDiscarded, detail },
+      { name: 'its waiting group is marked as the extension\\'s', ok: reloaded.title === 'Argus\\u2060', detail },
+      { name: 'after a reload a marked tab that went to another page still waits, marked', ok: reloaded.alive && reloaded.marked && reloaded.waiting, detail },
+      { name: 'a group of the user\\'s named like a workspace stays the user\\'s', ok: reloaded.mineFree, detail },
+      { name: 'the marked tab comes back in place after the reload', ok: back.sameTab && back.ungrouped && back.pages === 'panel-moved,a2', detail },
+      { name: 'marking a tab waiting for a while makes it wait for good', ok: marking.waitedFor && marking.forGood && marking.recorded, detail },
+    ];
+  })()`);
+}
+
+/**
+ * Closing a workspace while other windows are open closes its window, but its marked tab and another
+ * workspace's waiting tab move to another window, still running, and come back from there.
+ */
+function closeWaitingCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    const pageOf = (t) => t.pendingUrl || t.url;
+    const web = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => pageOf(t).startsWith('https://'));
+    const make = async (name, urls, keep) => {
+      const w = await chrome.windows.create({ url: urls, focused: false });
+      await sleep(1500);
+      const { id } = await call('createWorkspace', { name, fromWindowId: w.id });
+      await sleep(400);
+      if (!keep) await chrome.windows.remove(w.id);
+      return { id, windowId: w.id };
+    };
+    const session = async (key) => (await chrome.storage.session.get(key))[key] ?? {};
+    const closer = await make('Closer', ['https://example.com/?c1', 'https://example.com/?c2'], true);
+    const guest = await make('Closer guest', ['https://example.org/?guest'], false);
+    const win = closer.windowId;
+    await call('openWorkspace', { id: guest.id, windowId: win });
+    await sleep(1000);
+    const guestTab = (await web(win))[0].id;
+    await call('setKeepAlive', { tabId: guestTab, keep: true });
+    await call('openWorkspace', { id: closer.id, windowId: win });
+    await sleep(1000);
+    const c2 = (await web(win)).find((t) => pageOf(t).endsWith('?c2')).id;
+    await call('setKeepAlive', { tabId: c2, keep: true });
+    const elsewhere = await chrome.windows.create({ focused: true });
+    await sleep(800);
+
+    await call('closeWorkspace', { id: closer.id });
+    await sleep(1200);
+    const parked = await session('parked');
+    const [c2Tab, guestNow] = await Promise.all([get(c2), get(guestTab)]);
+    const target = c2Tab?.windowId;
+    const closed = {
+      windowGone: !(await chrome.windows.get(win).catch(() => null)),
+      c2: target !== win && c2Tab.groupId >= 0 && parked[c2]?.wsId === closer.id,
+      guest: guestNow?.windowId === target && parked[guestTab]?.wsId === guest.id && (await chrome.tabGroups.get(guestNow.groupId)).title === 'Closer guest\\u2060',
+    };
+    const { windowId: backWin } = await call('openWorkspace', { id: closer.id, windowId: target });
+    await sleep(1200);
+    const back = (await web(backWin)).find((t) => pageOf(t).endsWith('?c2'))?.id === c2 && !!(await get(guestTab));
+    const mine = (await chrome.tabs.getCurrent()).windowId;
+    for (const id of new Set([elsewhere.id, backWin])) if (id !== mine) await chrome.windows.remove(id).catch(() => {});
+    for (const id of [closer.id, guest.id]) await call('deleteWorkspace', { id });
+    const detail = JSON.stringify({ closed, back });
+    return [
+      { name: 'closing a workspace keeps its marked tab and other workspaces waiting tabs running in another window', ok: closed.windowGone && closed.c2 && closed.guest, detail },
+      { name: 'its marked tab comes back from there when it opens again', ok: back, detail },
+    ];
+  })()`);
+}
+
+/**
+ * The browser refusing tab edits: a tab gone from the list doesn't stop the others from waiting, a tab that
+ * can't come back closes rather than staying behind as a stray, a tab swapped by the browser keeps its mark.
+ */
+function refusedCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    const pageOf = (t) => t.pendingUrl || t.url;
+    const web = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => pageOf(t).startsWith('https://'));
+    const make = async (name, urls, keep) => {
+      const w = await chrome.windows.create({ url: urls, focused: false });
+      await sleep(1500);
+      const { id } = await call('createWorkspace', { name, fromWindowId: w.id });
+      await sleep(400);
+      if (!keep) await chrome.windows.remove(w.id);
+      return { id, windowId: w.id };
+    };
+    const session = async (key) => (await chrome.storage.session.get(key))[key] ?? {};
+    const ka = await import('/src/background/keep-alive.js');
+    const w = await chrome.windows.create({ url: ['https://example.com/?r1', 'https://example.com/?r2'], focused: false });
+    await sleep(1000);
+    const tabs = await web(w.id);
+    const ws = { id: 'refused-check', name: 'Refused', icon: '', color: '#3b82f6' };
+    const ids = await ka.parkTabs(ws, [...tabs, { id: 987654, windowId: w.id, url: 'https://gone.example/' }], { marks: { [tabs[1].id]: true } });
+    const grouped = (await Promise.all(tabs.map((t) => get(t.id)))).every((t) => t?.groupId >= 0);
+    const parkedRest = ids.length === 2 && grouped;
+    const stray = { back: await ka.unparkTab(tabs[0].id, 987654), closed: !(await get(tabs[0].id)) };
+    const fresh = await chrome.tabs.create({ windowId: w.id, url: 'https://example.com/?r3', active: false });
+    await ka.markTabs([tabs[1].id]);
+    await ka.replaceTab(fresh.id, tabs[1].id);
+    const parked = await session('parked');
+    const marks = await session('keepAlive');
+    const replaced = !!marks[fresh.id] && !marks[tabs[1].id] && parked[fresh.id]?.wsId === ws.id && !parked[tabs[1].id];
+    await ka.closeParked((_id, p) => p.wsId === ws.id);
+    const recordGone = !(await chrome.storage.local.get('parkedGroups')).parkedGroups[ws.id];
+    await chrome.windows.remove(w.id);
+    const detail = JSON.stringify({ ids, grouped, stray, replaced, recordGone });
+    return [
+      { name: 'a tab gone from the list does not stop the others from waiting', ok: parkedRest, detail },
+      { name: 'a waiting tab that cannot come back closes instead of staying behind', ok: !stray.back && stray.closed, detail },
+      { name: 'a tab the browser swaps for another keeps its mark and its wait', ok: replaced && recordGone, detail },
+    ];
+  })()`);
+}
+
+/** One tab dragged out to a window of its own must not take over a closed workspace that has that page. */
+function draggedOutCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    const pageOf = (t) => t.pendingUrl || t.url;
+    const web = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => pageOf(t).startsWith('https://'));
+    const make = async (name, urls, keep) => {
+      const w = await chrome.windows.create({ url: urls, focused: false });
+      await sleep(1500);
+      const { id } = await call('createWorkspace', { name, fromWindowId: w.id });
+      await sleep(400);
+      if (!keep) await chrome.windows.remove(w.id);
+      return { id, windowId: w.id };
+    };
+    const session = async (key) => (await chrome.storage.session.get(key))[key] ?? {};
+    const dragged = await make('Dragged', ['https://example.com/?d1', 'https://example.com/?d2'], false);
+    await sleep(500);
+    const solo = await chrome.windows.create({ url: 'https://example.com/?d1', focused: false });
+    await sleep(5000);
+    const bound = (await session('windowMap'))[solo.id] === dragged.id;
+    const { state } = await chrome.storage.local.get('state');
+    const saved = state.workspaces[dragged.id].tabs.length;
+    await chrome.windows.remove(solo.id);
+    await call('deleteWorkspace', { id: dragged.id });
+    return [{ name: 'a tab dragged out to its own window does not take over a closed workspace', ok: !bound && saved === 2, detail: JSON.stringify({ bound, saved }) }];
+  })()`);
+}
+
+/**
+ * With pinned tabs part of each workspace, a pinned tab marked to keep running waits through a switch and
+ * comes back pinned. Moving a waiting tab into the workspace on screen makes it that workspace's own.
+ */
+function pinnedWaitCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    const pageOf = (t) => t.pendingUrl || t.url;
+    const web = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => pageOf(t).startsWith('https://'));
+    const make = async (name, urls, keep) => {
+      const w = await chrome.windows.create({ url: urls, focused: false });
+      await sleep(1500);
+      const { id } = await call('createWorkspace', { name, fromWindowId: w.id });
+      await sleep(400);
+      if (!keep) await chrome.windows.remove(w.id);
+      return { id, windowId: w.id };
+    };
+    const session = async (key) => (await chrome.storage.session.get(key))[key] ?? {};
+    await call('updateSettings', { patch: { keepPinned: false } });
+    const p = await make('Pinned keep', ['https://example.com/?p1', 'https://example.com/?p2'], true);
+    const q = await make('Pinned other', ['https://example.org/?q1'], false);
+    const win = p.windowId;
+    const pin = (await web(win)).find((t) => pageOf(t).endsWith('?p1')).id;
+    await chrome.tabs.update(pin, { pinned: true });
+    await sleep(500);
+    await call('setKeepAlive', { tabId: pin, keep: true });
+    await call('openWorkspace', { id: q.id, windowId: win });
+    await sleep(1000);
+    const awayTab = await get(pin);
+    const away = !!awayTab && awayTab.groupId >= 0 && !awayTab.pinned;
+    await call('openWorkspace', { id: p.id, windowId: win });
+    await sleep(1000);
+    const backTab = await get(pin);
+    const back = !!backTab && backTab.pinned && backTab.groupId === -1;
+
+    await call('openWorkspace', { id: q.id, windowId: win });
+    await sleep(1000);
+    await call('moveTabs', { tabIds: [pin], targetId: q.id });
+    await sleep(800);
+    const { state } = await chrome.storage.local.get('state');
+    const movedTab = await get(pin);
+    const moved = {
+      ungrouped: movedTab?.groupId === -1,
+      notWaiting: !(await session('parked'))[pin],
+      savedInQ: state.workspaces[q.id].tabs.some((t) => t.url.endsWith('?p1')),
+      recordGone: !(await chrome.storage.local.get('parkedGroups')).parkedGroups[p.id],
+    };
+    await call('updateSettings', { patch: { keepPinned: true } });
+    await chrome.windows.remove(win);
+    for (const id of [p.id, q.id]) await call('deleteWorkspace', { id });
+    const detail = JSON.stringify({ away, back, moved });
+    return [
+      { name: 'a pinned tab marked to keep running waits through a switch and comes back pinned', ok: away && back, detail },
+      { name: 'moving a waiting tab into the workspace on screen makes it that workspace\\'s own', ok: moved.ungrouped && moved.notWaiting && moved.savedInQ && moved.recordGone, detail },
+    ];
+  })()`);
+}
+
+/**
+ * A window brought back (Ctrl+Shift+T) with a group that waited for a workspace opened elsewhere since: the
+ * group's tabs are stale copies and close. If that workspace is closed with nothing waiting, they wait for it.
+ */
+function restoredCopyCheck(dash) {
+  return dash.eval(`(async () => {
+    const call = async (action, payload = {}) => {
+      const r = await chrome.runtime.sendMessage({ type: 'ow:call', action, payload });
+      if (!r?.ok) throw new Error(action + ': ' + r?.error);
+      return r.result;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (id) => chrome.tabs.get(id).catch(() => null);
+    const pageOf = (t) => t.pendingUrl || t.url;
+    const web = async (windowId) => (await chrome.tabs.query({ windowId })).filter((t) => pageOf(t).startsWith('https://'));
+    const make = async (name, urls, keep) => {
+      const w = await chrome.windows.create({ url: urls, focused: false });
+      await sleep(1500);
+      const { id } = await call('createWorkspace', { name, fromWindowId: w.id });
+      await sleep(400);
+      if (!keep) await chrome.windows.remove(w.id);
+      return { id, windowId: w.id };
+    };
+    const session = async (key) => (await chrome.storage.session.get(key))[key] ?? {};
+    const open = await make('Restored open', ['https://example.com/?ro'], true);
+    const shut = await make('Restored shut', ['https://example.com/?rs'], false);
+    // As the browser brings the window back: its groups are there before the extension looks at it.
+    const w = await chrome.windows.create({ url: ['https://example.net/?copy1', 'https://example.net/?copy2'], focused: false });
+    const [copy1, copy2] = await web(w.id);
+    const group = async (tab, title) => {
+      const id = await chrome.tabs.group({ tabIds: [tab.id], createProperties: { windowId: w.id } });
+      await chrome.tabGroups.update(id, { title: title + '\\u2060', collapsed: true });
+    };
+    await group(copy1, 'Restored open');
+    await group(copy2, 'Restored shut');
+    await sleep(5000);
+    const parked = await session('parked');
+    const r = { staleClosed: !(await get(copy1.id)), waitsForShut: parked[copy2.id]?.wsId === shut.id && !parked[copy2.id].leftAt };
+    for (const id of [w.id, open.windowId]) await chrome.windows.remove(id);
+    for (const id of [open.id, shut.id]) await call('deleteWorkspace', { id });
+    return [{ name: 'a window brought back with a group its workspace no longer waits for does not mix it in', ok: r.staleClosed && r.waitsForShut, detail: JSON.stringify(r) }];
+  })()`);
 }
 
 /** Drops an open tab onto another workspace's card in the dashboard rack and checks it moved there. */
@@ -1256,6 +1600,12 @@ async function main() {
     checks.push(...(await closeTabsCheck(pages.dashboard)));
     checks.push(...(await soundCheck(port, pages.dashboard)));
     checks.push(...(await playingElsewhereCheck(port, pages.dashboard)));
+    checks.push(...(await markedReloadCheck(pages.dashboard)));
+    checks.push(...(await closeWaitingCheck(pages.dashboard)));
+    checks.push(...(await refusedCheck(pages.dashboard)));
+    checks.push(...(await draggedOutCheck(pages.dashboard)));
+    checks.push(...(await pinnedWaitCheck(pages.dashboard)));
+    checks.push(...(await restoredCopyCheck(pages.dashboard)));
     checks.push(...(await homeOnSwitchCheck(pages.dashboard)));
     if (pinSite) checks.push(...(await pinSuggestCheck(port, pages.dashboard)));
     else console.log('note: openssl not found, pin suggestion checks skipped');
