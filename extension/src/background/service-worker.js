@@ -6,7 +6,7 @@ import { cancelSnapshot, ensureHomeTab, isBusy, lastFocusedNormalWindow, schedul
 import { getState, setWindowWorkspace, workspaceForWindow } from './store.js';
 import { SUSPEND_ALARM, runAutoSuspend, suspendOtherTabs, suspendTabs, syncSuspendAlarm } from './suspender.js';
 import { handleMenuClick, scheduleMenuRebuild, syncKeepAliveMenu } from './menus.js';
-import { PARKED_ALARM, expireParked, forgetTab, noteQuiet, recognizeParkedGroups } from './keep-alive.js';
+import { PARKED_ALARM, expireParked, forgetTab, noteParkedPage, noteQuiet, recognizeParkedGroups, replaceTab } from './keep-alive.js';
 import { maybeSuggestPin, pinTab } from './pin-suggest.js';
 import { KEEP_ALIVE_KEY, MSG, POPUP_INTENT_KEY, STATE_KEY } from '../shared/constants.js';
 
@@ -58,8 +58,13 @@ chrome.tabs.onMoved.addListener((_id, info) => scheduleSnapshot(info.windowId));
 chrome.tabs.onAttached.addListener((_id, info) => scheduleSnapshot(info.newWindowId));
 chrome.tabs.onDetached.addListener((_id, info) => scheduleSnapshot(info.oldWindowId));
 chrome.tabs.onActivated.addListener((info) => scheduleSnapshot(info.windowId));
-chrome.tabs.onReplaced.addListener((tabId) => {
+chrome.tabs.onReplaced.addListener((tabId, removedTabId) => {
+  replaceTab(tabId, removedTabId).catch(() => {});
   chrome.tabs.get(tabId).then((tab) => scheduleSnapshot(tab.windowId), () => {});
+});
+// A tab waiting for another workspace that goes to another page (the next video) is still recognised later.
+chrome.tabs.onUpdated.addListener((id, info) => {
+  if ('url' in info) noteParkedPage(id).catch(() => {});
 });
 
 if (chrome.tabGroups) {

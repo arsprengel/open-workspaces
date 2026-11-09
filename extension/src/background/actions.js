@@ -4,7 +4,8 @@
 import { clearWindowMap, getState, getWindowMap, mutate, replaceState, setWindowWorkspace, unbindWorkspace, windowForWorkspace, workspaceForWindow } from './store.js';
 import { closeTabs, discardWhenReady, ensureHomeTab, homeUrl, lastFocusedNormalWindow, restoreTabs, snapshotWindow, withBusyWindow } from './tabs.js';
 import {
-  closeParked, dropParkedRecord, expireParked, getMarks, getParked, markTabs, parkTabs, parkedOf, tidyParkedGroups, unregisterParked,
+  closeParked, dropParkedRecord, expireParked, getMarks, getParked, markTabs, moveParkedGroups, parkTabs, parkedOf, tidyParkedGroups,
+  unregisterParked,
 } from './keep-alive.js';
 import {
   applyImport, buildExport, cleanImage, isNewTabUrl, isWindowFixture, keepAliveMatches, makeSection, makeWorkspace, matchWindows,
@@ -184,15 +185,8 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
     const ids = await restoreTabs(windowId, ws, { lazy: settings.lazyLoadTabs, keepPinned: settings.keepPinned, background: home != null });
     // The home tab, kept pinned tabs and other workspaces' parked tabs belong to the window, so they survive the swap.
     const leaving = oldTabs.filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
-    // Leaving tabs wait in a collapsed group instead of closing (pinned tabs can't be grouped): those marked
-    // to keep running until the workspace is back, one playing sound (a video, a call) until a while after
-    // it goes quiet, and when settings ask for it the others for a while, in case this is a quick look.
-    const marks = await getMarks();
-    const waits = (t) => !t.pinned && (marks[t.id] || t.audible || (settings.waitMinutes > 0 && !isNewTabUrl(t.pendingUrl || t.url)));
-    const orders = leaving.flatMap((t, i) => (waits(t) ? [i] : []));
-    const waiting = new Set(await parkTabs(oldWsId && workspaces[oldWsId], orders.map((i) => leaving[i]), { marks, orders }));
-    const closing = leaving.filter((t) => !waiting.has(t.id)).map((t) => t.id);
-    await closeTabs(closing);
+    const waiting = new Set(await parkLeaving(oldWsId && workspaces[oldWsId], leaving, settings));
+    await closeTabs(leaving.filter((t) => !waiting.has(t.id)).map((t) => t.id));
     await tidyParkedGroups(windowId);
     if (settings.homeTab) await ensureHomeTab(windowId, { refresh: true, activate: home != null });
     return ids;
@@ -202,6 +196,18 @@ async function swapWindow(windowId, wsId, oldTabs, oldWsId) {
   discardWhenReady(lazyIds);
   await expireParked(settings.waitMinutes);
   return { windowId };
+}
+
+/**
+ * Tabs leaving `ws` (in its order) wait in a collapsed group instead of closing: those marked to keep running
+ * until the workspace is back, one playing sound (a video, a call) until a while after it goes quiet, and
+ * when settings ask for it the others for a while, in case this is a quick look. Returns the ids parked.
+ */
+async function parkLeaving(ws, leaving, settings) {
+  const marks = await getMarks();
+  const waits = (t) => marks[t.id] || t.audible || (settings.waitMinutes > 0 && !isNewTabUrl(t.pendingUrl || t.url));
+  const orders = leaving.flatMap((t, i) => (waits(t) ? [i] : []));
+  return parkTabs(ws, orders.map((i) => leaving[i]), { marks, orders });
 }
 
 async function openInNewWindow(wsId) {
@@ -225,7 +231,11 @@ async function openInNewWindow(wsId) {
   return { windowId: win.id };
 }
 
-/** Saves and closes a workspace's tabs. The last browser window is kept alive with a new tab. */
+/**
+ * Saves and closes a workspace's tabs; those that wait on a switch (see parkLeaving) wait here too. Its
+ * window closes, its waiting tabs and other workspaces' moving to another window first; the last browser
+ * window is kept alive with a new tab.
+ */
 export function closeWorkspace(args) {
   return oneAtATime(() => closeNow(args));
 }
@@ -234,17 +244,26 @@ async function closeNow({ id }) {
   const windowId = await windowForWorkspace(id);
   if (windowId == null) return;
   await snapshotWindow(windowId);
-  await setWindowWorkspace(windowId, null);
-  const normals = await chrome.windows.getAll({ windowTypes: ['normal'] });
-  if (normals.length > 1) {
-    await chrome.windows.remove(windowId).catch(() => {});
-    return;
-  }
-  const { settings } = await getState();
-  const parked = await getParked();
-  const tabs = (await chrome.tabs.query({ windowId })).filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
-  await chrome.tabs.create({ windowId, active: true });
-  await closeTabs(tabs.map((t) => t.id));
+  const { settings, workspaces } = await getState();
+  const win = await chrome.windows.get(windowId).catch(() => null);
+  if (!win) return setWindowWorkspace(windowId, null);
+  const others = (await chrome.windows.getAll({ windowTypes: ['normal'] })).filter((w) => w.id !== windowId && w.incognito === win.incognito);
+  const other = others.find((w) => w.focused) ?? others[0];
+  await withBusyWindow(windowId, async () => {
+    await setWindowWorkspace(windowId, null);
+    const parked = await getParked();
+    const leaving = (await chrome.tabs.query({ windowId })).filter((t) => !isWindowFixture(t, settings.keepPinned, parked));
+    const waiting = new Set(await parkLeaving(workspaces[id], leaving, settings));
+    if (other) {
+      await moveParkedGroups(windowId, other.id);
+      await chrome.windows.remove(windowId).catch(() => {});
+      return;
+    }
+    await chrome.tabs.create({ windowId, active: true });
+    await closeTabs(leaving.filter((t) => !waiting.has(t.id)).map((t) => t.id));
+    await tidyParkedGroups(windowId);
+  });
+  await expireParked(settings.waitMinutes);
 }
 
 /** Cycles through open-able (non archived) workspaces in sidebar order, counting from where the last switch landed. */
@@ -321,6 +340,8 @@ export async function setKeepAlive({ tabId, keep }) {
   const tab = await chrome.tabs.get(tabId);
   await markTabs([tabId], !!keep);
   await snapshotWindow(tab.windowId);
+  // Unmarked while it waits for another workspace, it now waits like any tab left behind.
+  if ((await getParked())[tabId]) await expireParked((await getState()).settings.waitMinutes);
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +500,8 @@ export async function importData({ data, mode = 'merge' }) {
   await replaceState(next);
   // Kept-alive tabs waiting for workspaces that no longer exist have nowhere to go back to.
   await closeParked((_tabId, p) => !next.workspaces[p.wsId]);
+  // Open windows showing a workspace that came in with the file go on saving into it.
+  if (mode === 'replace') await reconcileWindows();
   return { count: Object.keys(next.workspaces).length };
 }
 
@@ -503,7 +526,9 @@ export async function reconcileWindows({ onlyWindowId = null } = {}) {
     .filter((ws) => !boundWs.has(ws.id) && !ws.archived)
     .map((ws) => ({ id: ws.id, urls: ws.tabs.map((t) => t.url) }));
 
-  for (const [windowId, wsId] of matchWindows(candidates, free)) {
+  // A window opened later is held to more: one tab dragged out to a window of its own must not take over
+  // a closed workspace that happens to have that page (its next save would leave the workspace with one tab).
+  for (const [windowId, wsId] of matchWindows(candidates, free, onlyWindowId == null ? 0.5 : 0.8)) {
     await setWindowWorkspace(windowId, wsId);
     // Tab ids changed since the marks were set: find the kept-alive tabs again by URL.
     const ids = keepAliveMatches(own(windows.find((w) => w.id === windowId)), state.workspaces[wsId].tabs);

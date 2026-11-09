@@ -1,6 +1,6 @@
 // Pure data helpers. No chrome.* calls in here, so everything is unit-testable in Node.
 
-import { APP_ID, COLORS, DEFAULT_SETTINGS, PIN_SITES, SCHEMA_VERSION, SOUND_GRACE_MINUTES } from './constants.js';
+import { APP_ID, COLORS, DEFAULT_SETTINGS, PARKED_MARK, PIN_SITES, SCHEMA_VERSION, SOUND_GRACE_MINUTES } from './constants.js';
 
 export function uid() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -174,20 +174,45 @@ export function dueParked(parked, tabs, minutes, now) {
 }
 
 /**
- * Parked entries for a group recognised after a restart (see recognizeParked): tabs whose page the record
- * lists as kept alive stay marked, the others wait afresh from `now`. Older records only held marked tabs.
+ * Parked entries for a group recognised after a restart or update (see recognizeParked). Each tab finds its
+ * recorded entry by id and page (ids survive an extension update), then by the page it showed last, then by
+ * its page when it left; it gets back its place, that page and its mark. The unmarked wait afresh from
+ * `now` (one still playing keeps its grace once quiet). A tab the record can't place stays marked: keeping
+ * a tab too long beats closing one meant to keep running. Older records ({urls, kept}) only tell marked
+ * pages from the others.
  * @returns {{entries:Record<number, object>, kept:number[]}}
  */
 export function reparkEntries(wsId, tabs, record, now) {
-  const kept = record.kept ? new Set(record.kept.map(normalizeUrl)) : null;
   const entries = {};
-  const marked = [];
-  tabs.forEach((t, order) => {
-    const keep = !kept || kept.has(normalizeUrl(t.url));
-    entries[t.id] = { wsId, order, url: t.url, ...(!keep && { leftAt: now }) };
-    if (keep) marked.push(t.id);
+  const kept = [];
+  const add = (t, { order, url, keep }) => {
+    entries[t.id] = { wsId, order, url, ...(!keep && { leftAt: now, ...(t.audible && { sound: true }) }) };
+    if (keep) kept.push(t.id);
+  };
+  const same = (a, b) => !!a && !!b && normalizeUrl(a) === normalizeUrl(b);
+  if (Array.isArray(record.tabs)) {
+    const left = [...record.tabs];
+    const match = new Map();
+    const tests = [(t, e) => e.id === t.id && same(e.now, t.url), (t, e) => same(e.now, t.url), (t, e) => same(e.url, t.url)];
+    for (const test of tests) {
+      for (const t of tabs) {
+        const i = match.has(t.id) ? -1 : left.findIndex((e) => test(t, e));
+        if (i >= 0) match.set(t.id, left.splice(i, 1)[0]);
+      }
+    }
+    tabs.forEach((t, i) => {
+      const e = match.get(t.id);
+      add(t, e ? { order: e.order, url: e.url, keep: e.keep !== false } : { order: i, url: t.url, keep: true });
+    });
+    return { entries, kept };
+  }
+  const urls = new Set((record.urls ?? []).map(normalizeUrl));
+  const marked = record.kept ? new Set(record.kept.map(normalizeUrl)) : null;
+  tabs.forEach((t, i) => {
+    const page = normalizeUrl(t.url);
+    add(t, { order: i, url: t.url, keep: !marked || marked.has(page) || !urls.has(page) });
   });
-  return { entries, kept: marked };
+  return { entries, kept };
 }
 
 const GROUP_PALETTE = {
@@ -209,33 +234,46 @@ export function nearestGroupColor(hex) {
   return best;
 }
 
+const recordedPages = (r) => (Array.isArray(r.tabs) ? r.tabs.flatMap((t) => [t.url, t.now]) : (r.urls ?? [])).filter((u) => typeof u === 'string' && u);
+
 /**
- * Finds parked groups again after their tab ids changed (browser restart, extension update): a group
- * whose title is a workspace's recorded parked title and that shows its recorded pages (all of them when
- * the group is untitled, at least one when it's named).
+ * Finds parked groups again after their tab ids changed (browser restart, extension update). A group the
+ * extension parked ends its title with PARKED_MARK: it's the group of the workspace with that name, whatever
+ * pages it shows now. A same-named group without the mark (the user's own, or one an older version parked)
+ * needs a page in common; for an older record a site will do, as its pages were never kept up to date (a
+ * video went on to the next one). An untitled group needs every page. Best matches first, each group and
+ * each record used once.
  * @param {{title:string, tabs:{id:number, url:string}[]}[]} groups
- * @param {Record<string, {title:string, urls:string[]}>} records wsId -> recorded parked group
- * @returns {{wsId:string, tabIds:number[]}[]}
+ * @param {Record<string, object>} records wsId -> recorded parked group (see PARKED_GROUPS_KEY)
+ * @returns {{wsId:string, tabIds:number[]}[]} in the order of `groups`
  */
 export function recognizeParked(groups, records) {
+  const pairs = [];
+  groups.forEach((group, g) => {
+    if (!group.tabs.length) return;
+    const marked = group.title.endsWith(PARKED_MARK);
+    const title = marked ? group.title.slice(0, -PARKED_MARK.length) : group.title;
+    for (const [wsId, r] of Object.entries(records)) {
+      if (r.title !== title) continue;
+      const pages = new Set(recordedPages(r).map(normalizeUrl));
+      const sites = new Set(recordedPages(r).map(hostname).filter(Boolean));
+      const same = group.tabs.filter((t) => pages.has(normalizeUrl(t.url))).length;
+      const near = group.tabs.filter((t) => sites.has(hostname(t.url))).length;
+      const legacy = !Array.isArray(r.tabs);
+      if (marked || (title ? same > 0 || (legacy && near > 0) : same === group.tabs.length)) pairs.push({ g, wsId, marked, same, near });
+    }
+  });
+  pairs.sort((x, y) => y.marked - x.marked || y.same - x.same || y.near - x.near || x.g - y.g);
   const found = [];
-  const taken = new Set();
-  // Several records can share a title (same workspace name, or untitled): the pages tell them apart. A named
-  // group is its workspace's even if a page moved on while it waited (a video playing the next one); an
-  // untitled one has only its pages to go by, so they all must match.
-  const covers = (r, group) => {
-    const urls = new Set(r.urls.map(normalizeUrl));
-    const known = group.tabs.filter((t) => urls.has(normalizeUrl(t.url))).length;
-    return group.title ? known > 0 : known === group.tabs.length;
-  };
-  for (const group of groups) {
-    if (!group.tabs.length) continue;
-    const entry = Object.entries(records).find(([wsId, r]) => !taken.has(wsId) && r.title === group.title && covers(r, group));
-    if (!entry) continue;
-    taken.add(entry[0]);
-    found.push({ wsId: entry[0], tabIds: group.tabs.map((t) => t.id) });
+  const usedGroups = new Set();
+  const usedWs = new Set();
+  for (const p of pairs) {
+    if (usedGroups.has(p.g) || usedWs.has(p.wsId)) continue;
+    usedGroups.add(p.g);
+    usedWs.add(p.wsId);
+    found.push(p);
   }
-  return found;
+  return found.sort((x, y) => x.g - y.g).map((p) => ({ wsId: p.wsId, tabIds: groups[p.g].tabs.map((t) => t.id) }));
 }
 
 /** Ids of the live tabs that are the kept-alive saved tabs, matched by URL (after a restart tab ids change). */
@@ -256,7 +294,7 @@ export function keepAliveMatches(liveTabs, savedTabs) {
 export function serializeGroup(group) {
   return {
     key: String(group.id),
-    title: str(group.title),
+    title: str(group.title).split(PARKED_MARK).join(''),
     color: str(group.color, 'grey'),
     collapsed: !!group.collapsed,
   };

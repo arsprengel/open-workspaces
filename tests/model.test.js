@@ -4,8 +4,9 @@ import {
   applyImport, buildExport, cleanImage, emptyState, isExcluded, isHomeUrl, isNewTabUrl, isWindowFixture, keepAliveMatches,
   makeWorkspace, matchWindows, nearestGroupColor, normalizeState, overlapScore, pairParked, parseExclusions, pinSuggestionFor, realTabCount,
   recognizeParked, reparkEntries, search, dueParked,
-  serializeTab, suggestedSite,
+  serializeGroup, serializeTab, suggestedSite,
 } from '../extension/src/shared/model.js';
+import { PARKED_MARK as M } from '../extension/src/shared/constants.js';
 
 test('isNewTabUrl recognises blank and new-tab pages', () => {
   for (const url of ['', undefined, 'about:blank', 'chrome://newtab/', 'chrome://new-tab-page', 'edge://newtab', 'chrome-search://local-ntp/local-ntp.html']) {
@@ -231,16 +232,39 @@ test('nearestGroupColor maps workspace colors onto the browser group palette', (
   assert.equal(nearestGroupColor('nope'), 'grey');
 });
 
-test('recognizeParked finds parked groups by recorded title and URLs', () => {
-  const records = { a: { title: '🚀 Alpha', urls: ['https://chat.example/', 'https://music.example/x'] }, b: { title: 'Beta', urls: ['https://b.example/'] } };
+test('recognizeParked finds the groups it parked by their marked title, whatever pages they show now', () => {
+  const tab = (id, page, keep = true) => ({ id, order: 0, url: page, now: page, keep });
+  const records = { a: { title: '🚀 Alpha', tabs: [tab(1, 'https://chat.example/'), tab(2, 'https://music.example/x')] }, b: { title: 'Beta', tabs: [tab(3, 'https://b.example/')] } };
   const groups = [
     { title: 'Work stuff', tabs: [{ id: 1, url: 'https://chat.example/' }] },
-    { title: '🚀 Alpha', tabs: [{ id: 2, url: 'https://chat.example/#top' }, { id: 3, url: 'https://music.example/x' }] },
-    { title: 'Beta', tabs: [{ id: 4, url: 'https://other.example/' }] },
-    { title: '🚀 Alpha', tabs: [{ id: 5, url: 'https://chat.example/' }] },
+    { title: `🚀 Alpha${M}`, tabs: [{ id: 5, url: 'https://chat.example/' }] },
+    { title: `🚀 Alpha${M}`, tabs: [{ id: 2, url: 'https://chat.example/#top' }, { id: 3, url: 'https://music.example/x' }] },
+    { title: `Beta${M}`, tabs: [{ id: 4, url: 'https://other.example/' }] },
   ];
-  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'a', tabIds: [2, 3] }]);
-  assert.deepEqual(recognizeParked([{ title: 'Beta', tabs: [] }], records), []);
+  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'a', tabIds: [2, 3] }, { wsId: 'b', tabIds: [4] }], 'the closest of two copies wins');
+  assert.deepEqual(recognizeParked([{ title: `Beta${M}`, tabs: [] }], records), []);
+});
+
+test('recognizeParked never takes a group of the user\'s with a workspace\'s name', () => {
+  const records = { r: { title: 'Research', tabs: [{ id: 9, order: 0, url: 'https://arxiv.org/abs/1', now: 'https://arxiv.org/abs/2', keep: true }] } };
+  const mine = { title: 'Research', tabs: [{ id: 1, url: 'https://scholar.example/' }] };
+  const parked = { title: `Research${M}`, tabs: [{ id: 2, url: 'https://arxiv.org/abs/3' }] };
+  assert.deepEqual(recognizeParked([mine], records), [], 'same name, no mark, no page in common');
+  assert.deepEqual(recognizeParked([mine, parked], records), [{ wsId: 'r', tabIds: [2] }], 'the marked one, wherever it is');
+  const sharing = { title: 'Research', tabs: [{ id: 3, url: 'https://arxiv.org/abs/2' }] };
+  assert.deepEqual(recognizeParked([sharing, parked], records), [{ wsId: 'r', tabIds: [2] }], 'even one showing the same page loses to the marked one');
+  assert.deepEqual(recognizeParked([sharing], records), [{ wsId: 'r', tabIds: [3] }], 'mark lost: the page it shows now still tells');
+});
+
+test('recognizeParked still finds groups parked by an older version, by a page or a site in common', () => {
+  const records = { a: { title: '⭐ Pessoal', urls: ['https://www.youtube.com/watch?v=1', 'https://x.example/'] } };
+  const nextVideo = [{ title: '⭐ Pessoal', tabs: [{ id: 3, url: 'https://www.youtube.com/watch?v=3' }] }];
+  assert.deepEqual(recognizeParked(nextVideo, records), [{ wsId: 'a', tabIds: [3] }], 'its only tab went on to the next video');
+  assert.deepEqual(recognizeParked([{ title: '⭐ Pessoal', tabs: [{ id: 4, url: 'https://mine.example/' }] }], records), [], 'nothing in common: the user\'s own');
+  const twins = { a: { title: 'Work', urls: ['https://a.example/'] }, b: { title: 'Work', urls: ['https://b.example/'] } };
+  assert.deepEqual(recognizeParked([{ title: 'Work', tabs: [{ id: 5, url: 'https://b.example/' }] }], twins), [{ wsId: 'b', tabIds: [5] }], 'same name: the pages pick which');
+  const untitled = { b: { title: '', urls: ['https://b.example/', 'https://b.example/2'] } };
+  assert.deepEqual(recognizeParked([{ title: '', tabs: [{ id: 6, url: 'https://b.example/' }, { id: 7, url: 'https://c.example/' }] }], untitled), [], 'untitled groups need every page');
 });
 
 test('recognizeParked tells parked groups with the same title apart by their pages', () => {
@@ -311,24 +335,40 @@ test('dueParked keeps a tab kept for its sound a few minutes after the sound sto
   assert.deepEqual(dueParked(parked, tabs, 15, now).close, [], 'a longer wait in settings applies to it too');
 });
 
-test('recognizeParked takes a named group even if a page in it moved on', () => {
-  const records = { a: { title: '⭐ Pessoal', urls: ['https://www.youtube.com/watch?v=1', 'https://x.example/'] } };
-  const groups = [{ title: '⭐ Pessoal', tabs: [{ id: 1, url: 'https://www.youtube.com/watch?v=2' }, { id: 2, url: 'https://x.example/' }] }];
-  assert.deepEqual(recognizeParked(groups, records), [{ wsId: 'a', tabIds: [1, 2] }]);
-  const strangers = [{ title: '⭐ Pessoal', tabs: [{ id: 3, url: 'https://other.example/' }] }];
-  assert.deepEqual(recognizeParked(strangers, records), [], 'a group sharing the name but none of the pages is not it');
-  const untitled = { b: { title: '', urls: ['https://b.example/', 'https://b.example/2'] } };
-  assert.deepEqual(recognizeParked([{ title: '', tabs: [{ id: 4, url: 'https://b.example/' }, { id: 5, url: 'https://c.example/' }] }], untitled), [], 'untitled groups still need every page');
-});
-
-test('reparkEntries keeps marked tabs running after a restart and gives the others a fresh wait', () => {
-  const tabs = [{ id: 7, url: 'https://chat.example/' }, { id: 8, url: 'https://doc.example/' }];
-  const record = { title: 'A', urls: ['https://chat.example/', 'https://doc.example/'], kept: ['https://chat.example/#x'] };
+test('reparkEntries gives each recognised tab back its place, its page when it left and its mark', () => {
+  const record = { title: 'A', tabs: [
+    { id: 70, order: 1, url: 'https://chat.example/', now: 'https://chat.example/room', keep: true },
+    { id: 71, order: 3, url: 'https://doc.example/', now: 'https://doc.example/', keep: false },
+    { id: 72, order: 4, url: 'https://video.example/1', now: 'https://video.example/2', keep: false },
+  ] };
+  const tabs = [{ id: 7, url: 'https://chat.example/room' }, { id: 8, url: 'https://doc.example/' }, { id: 9, url: 'https://video.example/2', audible: true }];
   assert.deepEqual(reparkEntries('a', tabs, record, 500), {
-    entries: { 7: { wsId: 'a', order: 0, url: 'https://chat.example/' }, 8: { wsId: 'a', order: 1, url: 'https://doc.example/', leftAt: 500 } },
+    entries: {
+      7: { wsId: 'a', order: 1, url: 'https://chat.example/' },
+      8: { wsId: 'a', order: 3, url: 'https://doc.example/', leftAt: 500 },
+      9: { wsId: 'a', order: 4, url: 'https://video.example/1', leftAt: 500, sound: true },
+    },
     kept: [7],
   });
-  assert.deepEqual(reparkEntries('a', tabs, { title: 'A', urls: record.urls }, 500).kept, [7, 8], 'older records only held marked tabs');
+});
+
+test('reparkEntries never lets a marked tab close on a guess', () => {
+  const page = 'https://same.example/';
+  const record = { title: 'A', tabs: [{ id: 5, order: 0, url: page, now: page, keep: false }, { id: 6, order: 1, url: page, now: page, keep: true }] };
+  const swapped = reparkEntries('a', [{ id: 6, url: page }, { id: 5, url: page }], record, 500);
+  assert.deepEqual(swapped.kept, [6], 'after an extension update ids still tell two tabs on one page apart');
+  assert.equal(swapped.entries[5].leftAt, 500);
+  assert.deepEqual(reparkEntries('a', [{ id: 9, url: 'https://unknown.example/' }], record, 500).kept, [9], 'a tab the record cannot place stays marked');
+
+  const legacy = { title: 'A', urls: ['https://chat.example/', 'https://doc.example/'], kept: ['https://chat.example/#x'] };
+  const older = reparkEntries('a', [{ id: 7, url: 'https://chat.example/' }, { id: 8, url: 'https://doc.example/' }, { id: 9, url: 'https://chat.example/moved' }], legacy, 500);
+  assert.deepEqual(older.kept, [7, 9], 'older records: a marked tab whose page moved on stays marked');
+  assert.equal(older.entries[8].leftAt, 500);
+  assert.deepEqual(reparkEntries('a', [{ id: 7, url: 'https://doc.example/' }], { title: 'A', urls: legacy.urls }, 500).kept, [7], 'oldest records only held marked tabs');
+});
+
+test('a parked group\'s mark never ends up in a saved group title', () => {
+  assert.equal(serializeGroup({ id: 3, title: `Keep${M}`, color: 'green', collapsed: true }).title, 'Keep');
 });
 
 test('keepAliveMatches finds the live tabs behind kept-alive saved tabs', () => {

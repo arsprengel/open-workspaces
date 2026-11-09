@@ -24,6 +24,17 @@ All notable changes to this project are documented here. The format follows [Kee
 - A save that was already running when you switched workspaces could finish late and briefly store a half-switched tab list.
 - Workspaces could swallow each other's tabs, more of them on every switch: clicking another workspace while a switch was still running left the tabs of the ones in between in the window, saved into the last one. Switches now run one at a time, and of several quick clicks only the last is carried out.
 - A tab of the workspace being left that had already closed by itself (a login page, for one) kept the tabs after it from closing, so they ended up in the next workspace.
+- A tab of another workspace waiting in the window (a video still playing, say) could be taken for the current workspace's after the extension reloaded or the browser restarted, if its page had moved on meanwhile (the next video): it was then saved into, and stuck to, the workspace on screen. Switching now also folds waiting groups back up.
+- A tab marked to keep running could be lost: if its page changed while it waited for its workspace (a dashboard rotating screens, the next video) and the extension then reloaded or the browser restarted, it was closed. Waiting groups now follow their tabs' pages, and a tab whose mark can't be told for sure stays.
+- A tab group of your own named like a workspace could be taken for that workspace's waiting group after a reload. Waiting groups now carry an invisible mark at the end of their name.
+- Closing a workspace with other windows open closed its marked tabs, and the tabs other workspaces had waiting in that window. They now move to another window and keep running.
+- If the browser refused to group the tabs of the workspace being left (one had just closed, or a tab was being dragged), every one of them closed, marked ones too. Now the others still wait, and a refusal is tried again.
+- Marking a tab that was waiting only for a while (it was playing sound, say) didn't stop it from closing when that while ran out.
+- A pinned tab marked to keep running closed on a switch when pinned tabs are part of each workspace. It now waits unpinned and comes back pinned.
+- Moving a waiting tab into the workspace on screen left it inside the other workspace's group.
+- A tab dragged out to a window of its own could take over a closed workspace that had that page, and the workspace was then saved with that one tab.
+- A window brought back with Ctrl+Shift+T after its waiting group's workspace was opened elsewhere mixed that group's tabs into its own workspace.
+- Restoring a workspace no longer leaves a stray copy of a waiting tab behind when the browser refuses to move it back.
 
 ## [0.1.0] - 2026-10-29
 

@@ -8,8 +8,11 @@ import { HOME_PAGE } from '../shared/constants.js';
 
 const SNAPSHOT_DELAY_MS = 400;
 const timers = new Map();
-/** Windows we're rewriting right now. Tab events from them are ignored until we finish. */
-const busyWindows = new Set();
+/**
+ * Windows we're rewriting right now, with how many rewrites are under way (adding the home tab can overlap
+ * a switch). Tab events from them are ignored until the last one finishes.
+ */
+const busyWindows = new Map();
 /** Bumped each time a window gets rewritten, so a snapshot that straddled it knows it's stale. */
 const rewrites = new Map();
 
@@ -17,13 +20,15 @@ export const isBusy = (windowId) => busyWindows.has(windowId);
 
 /** Marks `windowId` busy while `fn` runs, so the intermediate tab churn isn't saved. */
 export async function withBusyWindow(windowId, fn) {
-  busyWindows.add(windowId);
+  busyWindows.set(windowId, (busyWindows.get(windowId) ?? 0) + 1);
   rewrites.set(windowId, (rewrites.get(windowId) ?? 0) + 1);
   cancelSnapshot(windowId);
   try {
     return await fn();
   } finally {
-    busyWindows.delete(windowId);
+    const left = busyWindows.get(windowId) - 1;
+    if (left > 0) busyWindows.set(windowId, left);
+    else busyWindows.delete(windowId);
   }
 }
 
@@ -113,7 +118,9 @@ export async function restoreTabs(windowId, ws, { lazy = true, keepPinned = fals
     const active = i === activeIndex;
     const parkedId = byIndex.get(i);
     if (parkedId != null && (await unparkTab(parkedId, windowId))) {
-      if (active && !background) await chrome.tabs.update(parkedId, { active: true }).catch(() => {});
+      // A pinned tab waited unpinned (a group can't hold it): it's pinned again.
+      const props = { ...(src.pinned && { pinned: true }), ...(active && !background && { active: true }) };
+      if (Object.keys(props).length) await chrome.tabs.update(parkedId, props).catch(() => {});
       created.push({ id: parkedId, src, active, hasUrl: false });
       continue;
     }
